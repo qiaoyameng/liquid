@@ -93,8 +93,6 @@ class LoopExpression(Expression):
     def _to_iter(
         self, obj: object, context: RenderContext
     ) -> tuple[Iterator[Any], int]:
-        if isinstance(obj, Mapping):
-            return iter(obj.items()), len(obj)
         if isinstance(obj, range):
             try:
                 return iter(obj), len(obj)
@@ -102,12 +100,7 @@ class LoopExpression(Expression):
                 raise LiquidValueError(
                     "range literal length limit reached", token=None
                 ) from err
-        if isinstance(obj, str) and not context.env.string_sequences:
-            return (iter([]), 0) if not obj else (iter([obj]), 1)
-        if isinstance(obj, Sequence):
-            return iter(obj), len(obj)
-
-        return iter([]), 0
+        return context.loop_items(obj)
 
     def _to_int(self, obj: object, *, token: Token) -> int:
         try:

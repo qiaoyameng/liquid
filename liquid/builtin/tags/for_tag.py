@@ -11,6 +11,7 @@ from typing import Mapping
 from typing import Optional
 from typing import TextIO
 
+from liquid.access import is_access_boundary
 from liquid.ast import BlockNode
 from liquid.ast import Node
 from liquid.builtin.expressions import Identifier
@@ -89,6 +90,9 @@ class ForNode(Node):
             # delegating `get` and `assign` to the outer context.
             with context.loop(namespace, forloop):
                 for itm in forloop:
+                    if is_access_boundary(itm):
+                        itm = object.__getattribute__(itm, "value")
+                    context.bind_loop_alias(name, itm)
                     namespace[name] = itm
                     try:
                         character_count += self.block.render(context, buffer)
@@ -127,6 +131,9 @@ class ForNode(Node):
             # delegating `get` and `assign` to the outer context.
             with context.loop(namespace, forloop):
                 for itm in forloop:
+                    if is_access_boundary(itm):
+                        itm = object.__getattribute__(itm, "value")
+                    context.bind_loop_alias(name, itm)
                     namespace[name] = itm
                     try:
                         character_count += await self.block.render_async(

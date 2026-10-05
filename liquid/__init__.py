@@ -12,6 +12,9 @@ from markupsafe import soft_str
 from .mode import Mode
 from .token import Token
 from .expression import Expression
+from .access import AccessDecision
+from .access import AccessPolicy
+from .access import PathAccessPolicy
 
 from .context import RenderContext
 from .context import FutureContext
@@ -59,6 +62,8 @@ from . import future
 __version__ = "2.3.3"
 
 __all__ = (
+    "AccessDecision",
+    "AccessPolicy",
     "AwareBoundTemplate",
     "BlockNode",
     "BoundTemplate",
@@ -89,6 +94,7 @@ __all__ = (
     "Mode",
     "Node",
     "PackageLoader",
+    "PathAccessPolicy",
     "parse",
     "render_async",
     "render",

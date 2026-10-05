@@ -96,6 +96,15 @@ class DebugUndefined(Undefined):
         return f"Undefined({self.name})"
 
 
+class RestrictedUndefined(Undefined):
+    """An undefined value produced by an access policy denial."""
+
+    __slots__ = ()
+
+    def __init__(self, token: Optional[Token] = None):
+        super().__init__("", token=token)
+
+
 class StrictUndefined(Undefined):
     """An undefined that raises an exception for everything other than `repr`."""
 

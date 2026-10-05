@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from functools import partial
 from itertools import chain
 from itertools import islice
 from operator import getitem
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Iterable
+from typing import Optional
 from typing import Sequence
 from typing import Union
 
 from liquid import Markup
+from liquid.access import AccessDecision
 from liquid.builtin.expressions import Nil
 from liquid.exceptions import FilterArgumentError
 from liquid.exceptions import FilterError
@@ -21,11 +22,14 @@ from liquid.exceptions import FilterItemTypeError
 from liquid.filter import decimal_arg
 from liquid.filter import liquid_filter
 from liquid.filter import sequence_filter
+from liquid.filter import trusted_filter
+from liquid.filter import with_context
 from liquid.filter import with_environment
 from liquid.undefined import is_undefined
 
 if TYPE_CHECKING:
     from liquid import Environment
+    from liquid.context import RenderContext
 
 ArrayT = Union[list[Any], tuple[Any, ...]]
 """Array-like objects."""
@@ -37,6 +41,7 @@ MAX_CH = chr(0x10FFFF)
 MISSING = object()
 
 
+@trusted_filter
 @with_environment
 @sequence_filter
 def join(
@@ -59,47 +64,51 @@ def join(
     return separator.join(_str_if_not(item) for item in left)
 
 
-@with_environment
+@trusted_filter(field_access=True)
+@with_context
 @liquid_filter
-def first(left: Any, *, environment: Environment) -> object:
+def first(
+    left: Any,
+    *,
+    context: Optional[RenderContext] = None,
+    environment: Optional[Environment] = None,
+) -> object:
     """Return the first item in collection _left_.
 
     If _left_ is not a collection or it is empty, `None` is returned.
     """
-    if isinstance(left, str):
-        # Honor the opt-in Ruby-compat flag, matching the `.first` property path.
-        if environment.string_first_and_last:
-            return left[0] if left else None
-        return None
-
-    if isinstance(left, dict):
-        left = list(islice(left.items(), 1))
-
-    try:
-        return getitem(left, 0)
-    except (TypeError, KeyError, IndexError):
-        return None
+    if context is None:
+        if isinstance(left, dict):
+            left = list(islice(left.items(), 1))
+        try:
+            return getitem(left, 0)
+        except (TypeError, KeyError, IndexError):
+            return None
+    return _item(context, left, "first", default=None, token=None)
 
 
-@with_environment
+@trusted_filter(field_access=True)
+@with_context
 @liquid_filter
-def last(obj: Sequence[Any], *, environment: Environment) -> object:
+def last(
+    obj: Sequence[Any],
+    *,
+    context: Optional[RenderContext] = None,
+    environment: Optional[Environment] = None,
+) -> object:
     """Return the last item in collection _left_.
 
     If _left_ is not a collection or it is empty, `None` is returned.
     """
-    if isinstance(obj, str):
-        # Honor the opt-in Ruby-compat flag, matching the `.last` property path.
-        if environment.string_first_and_last:
-            return obj[-1] if obj else None
-        return None
-
-    try:
-        return getitem(obj, -1)
-    except (TypeError, KeyError, IndexError):
-        return None
+    if context is None:
+        try:
+            return getitem(obj, -1)
+        except (TypeError, KeyError, IndexError):
+            return None
+    return _item(context, obj, "last", default=None, token=None)
 
 
+@trusted_filter
 @sequence_filter
 def concat(sequence: ArrayT, second_array: ArrayT) -> ArrayT:
     """Return the concatenation of _sequence_ and _second_array_."""
@@ -114,30 +123,49 @@ def concat(sequence: ArrayT, second_array: ArrayT) -> ArrayT:
     return list(chain(sequence, second_array))
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def map_(sequence: ArrayT, key: object) -> list[object]:
+def map_(
+    sequence: ArrayT, key: object, *, context: Optional[RenderContext] = None
+) -> list[object]:
     """Return an array/list of items in _sequence_ selected by _key_."""
     try:
-        return [_getitem(itm, str(key), default=_NULL) for itm in sequence]
+        result = []
+        for itm in sequence:
+            decision = _allowed(context, itm, key, token=None)
+            if decision is AccessDecision.DENY:
+                continue
+            result.append(_item(context, itm, key, default=_NULL, token=None))
+        return result
     except TypeError as err:
         raise FilterError("can't map sequence", token=None) from err
 
 
+@trusted_filter
 @sequence_filter
 def reverse(array: ArrayT) -> list[object]:
     """Reverses the order of the items in an array."""
     return list(reversed(array))
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def sort(sequence: ArrayT, key: object = None) -> list[object]:
+def sort(
+    sequence: ArrayT, key: object = None, *, context: Optional[RenderContext] = None
+) -> list[object]:
     """Return a copy of _sequence_ in ascending order.
 
     When a key string is provided, objects without the key property will
     be at the end of the output list/array.
     """
     if key:
-        key_func = partial(_getitem, key=str(key), default=MAX_CH)
+        def key_func(obj: object) -> object:
+            if _allowed(context, obj, key, token=None) is AccessDecision.DENY:
+                return MAX_CH
+            return _item(context, obj, key, default=MAX_CH, token=None)
+
         return sorted(sequence, key=key_func)
 
     try:
@@ -146,83 +174,187 @@ def sort(sequence: ArrayT, key: object = None) -> list[object]:
         raise FilterError("can't sort sequence", token=None) from err
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def sort_natural(sequence: ArrayT, key: object = None) -> list[object]:
+def sort_natural(
+    sequence: ArrayT, key: object = None, *, context: Optional[RenderContext] = None
+) -> list[object]:
     """Return a copy of _sequence_ in ascending order, with case-insensitive comparison.
 
     When a key string is provided, objects without the key property will
     be at the end of the output list/array.
     """
     if key:
-        item_getter = partial(_getitem, key=str(key), default=MAX_CH)
+        def item_getter(obj: object) -> object:
+            if _allowed(context, obj, key, token=None) is AccessDecision.DENY:
+                return MAX_CH
+            return _item(context, obj, key, default=MAX_CH, token=None)
+
         return sorted(sequence, key=lambda obj: _lower(item_getter(obj)))
 
     return sorted(sequence, key=_lower)
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def where(sequence: ArrayT, attr: object, value: object = None) -> list[object]:
+def where(
+    sequence: ArrayT,
+    attr: object,
+    value: object = None,
+    *,
+    context: Optional[RenderContext] = None,
+) -> list[object]:
     """Return a list of items from _sequence_ where _attr_ equals _value_."""
+    def selected(itm: object) -> object:
+        decision = _allowed(context, itm, attr, token=None)
+        if decision is AccessDecision.DENY:
+            return _DENIED
+        return _item(context, itm, attr, default=_DENIED, token=None)
+
     if value is not None and not is_undefined(value):
-        return [itm for itm in sequence if _getitem(itm, attr) == value]
+        return [itm for itm in sequence if selected(itm) == value]
 
-    return [itm for itm in sequence if _getitem(itm, attr) not in (False, None)]
+    return [itm for itm in sequence if selected(itm) not in (_DENIED, False, None)]
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def reject(sequence: ArrayT, attr: object, value: object = None) -> list[object]:
+def reject(
+    sequence: ArrayT,
+    attr: object,
+    value: object = None,
+    *,
+    context: Optional[RenderContext] = None,
+) -> list[object]:
     """Return a list of items from _sequence_ where _attr_ is not equal to _value_."""
     if attr is None or is_undefined(attr):
         return []
 
     if value is not None and not is_undefined(value):
-        return [itm for itm in sequence if _getitem(itm, attr) != value]
+        return [
+            itm
+            for itm in sequence
+            if _allowed(context, itm, attr, token=None) is not AccessDecision.DENY
+            if _item(context, itm, attr, default=_DENIED, token=None)
+            != value
+        ]
 
-    return [itm for itm in sequence if _getitem(itm, attr) in (False, None)]
+    return [
+        itm
+        for itm in sequence
+        if _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+        if _item(context, itm, attr, default=_DENIED, token=None)
+        in (False, None)
+    ]
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def find(sequence: ArrayT, attr: object, value: object = None) -> object:
+def find(
+    sequence: ArrayT,
+    attr: object,
+    value: object = None,
+    *,
+    context: Optional[RenderContext] = None,
+) -> object:
     """Return the first item from _sequence_ where _attr_ is equal to _value_."""
     if value is not None and not is_undefined(value):
-        return next((itm for itm in sequence if _getitem(itm, attr) == value), None)
-
-    return next(
-        (itm for itm in sequence if _getitem(itm, attr) not in (False, None)), None
-    )
-
-
-@sequence_filter
-def find_index(
-    sequence: ArrayT, attr: object, value: object = None
-) -> Union[int, None]:
-    """Return the index of first item from _sequence_ where _attr_ equals _value_."""
-    if value is not None and not is_undefined(value):
         return next(
-            (i for i, itm in enumerate(sequence) if _getitem(itm, attr) == value), None
+            (
+                itm
+                for itm in sequence
+                if _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+                if _item(context, itm, attr, default=_DENIED, token=None)
+                == value
+            ),
+            None,
         )
 
     return next(
         (
-            i
-            for i, itm in enumerate(sequence)
-            if _getitem(itm, attr) not in (False, None)
+            itm
+            for itm in sequence
+            if _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+            if _item(context, itm, attr, default=_DENIED, token=None)
+            not in (_DENIED, False, None)
         ),
         None,
     )
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def has(sequence: ArrayT, attr: object, value: object = None) -> bool:
+def find_index(
+    sequence: ArrayT,
+    attr: object,
+    value: object = None,
+    *,
+    context: Optional[RenderContext] = None,
+) -> Union[int, None]:
+    """Return the index of first item from _sequence_ where _attr_ equals _value_."""
+    if value is not None and not is_undefined(value):
+        return next(
+            (
+                i
+                for i, itm in enumerate(sequence)
+                if _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+                if _item(context, itm, attr, default=_DENIED, token=None)
+                == value
+            ),
+            None,
+        )
+
+    return next(
+            (
+                i
+                for i, itm in enumerate(sequence)
+                if _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+                if _item(context, itm, attr, default=_DENIED, token=None)
+                not in (_DENIED, False, None)
+        ),
+        None,
+    )
+
+
+@trusted_filter(field_access=True)
+@with_context
+@sequence_filter
+def has(
+    sequence: ArrayT,
+    attr: object,
+    value: object = None,
+    *,
+    context: Optional[RenderContext] = None,
+) -> bool:
     """Return true if any items in _sequence_ have _attr_ equal to _value_."""
     if value is not None and not is_undefined(value):
-        return any((itm for itm in sequence if _getitem(itm, attr) == value))
+        return any(
+            _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+            and
+            _item(context, itm, attr, default=_DENIED, token=None) == value
+            for itm in sequence
+        )
 
-    return any((itm for itm in sequence if _getitem(itm, attr) not in (False, None)))
+    return any(
+        _allowed(context, itm, attr, token=None) is AccessDecision.ALLOW
+        and
+        _item(context, itm, attr, default=_DENIED, token=None)
+        not in (_DENIED, False, None)
+        for itm in sequence
+    )
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def uniq(sequence: ArrayT, key: object = None) -> list[object]:
+def uniq(
+    sequence: ArrayT, key: object = None, *, context: Optional[RenderContext] = None
+) -> list[object]:
     """Return a copy of _sequence_ with duplicate elements removed."""
     # Note that we're not using a dict or set for deduplication because we need
     # to handle sequences containing unhashable objects, like dictionaries.
@@ -232,14 +364,9 @@ def uniq(sequence: ArrayT, key: object = None) -> list[object]:
         keys = []
         result = []
         for obj in sequence:
-            try:
-                item = obj[key]
-            except KeyError:
-                item = MISSING
-            except TypeError as err:
-                raise FilterArgumentError(
-                    f"can't read property '{key}' of {obj}", token=None
-                ) from err
+            if _allowed(context, obj, key, token=None) is AccessDecision.DENY:
+                continue
+            item = _item(context, obj, key, default=MISSING, token=None)
 
             if item not in keys:
                 keys.append(item)
@@ -250,28 +377,46 @@ def uniq(sequence: ArrayT, key: object = None) -> list[object]:
     return [obj for i, obj in enumerate(sequence) if sequence.index(obj) == i]
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def compact(sequence: ArrayT, key: object = None) -> list[object]:
+def compact(
+    sequence: ArrayT,
+    key: object = None,
+    *,
+    context: Optional[RenderContext] = None,
+) -> list[object]:
     """Return a copy of _sequence_ with any nil values removed."""
+    if context is None and key is not None:
+        raise FilterArgumentError("too many arguments to compact", token=None)
     if key is not None:
-        try:
-            return [itm for itm in sequence if itm[key] is not None]
-        except TypeError as err:
-            raise FilterArgumentError(
-                f"can't read property '{key}'", token=None
-            ) from err
+        return [
+            itm
+            for itm in sequence
+            if _allowed(context, itm, key, token=None) is AccessDecision.ALLOW
+            if _item(context, itm, key, default=_DENIED, token=None)
+            not in (_DENIED, None)
+        ]
     return [itm for itm in sequence if itm is not None]
 
 
+@trusted_filter(field_access=True)
+@with_context
 @sequence_filter
-def sum_(sequence: ArrayT, key: object = None) -> Union[float, int, Decimal]:
+def sum_(
+    sequence: ArrayT, key: object = None, *, context: Optional[RenderContext] = None
+) -> Union[float, int, Decimal]:
     """Return the sum of all numeric elements in _sequence_.
 
     If _key_ is given, it is assumed that sequence items are mapping-like,
     and the values at _item[key]_ will be summed instead.
     """
     if key is not None and not is_undefined(key):
-        rv = sum(decimal_arg(_getitem(elem, key, 0), 0) for elem in sequence)
+        rv = sum(
+            decimal_arg(_item(context, elem, key, default=0, token=None), 0)
+            for elem in sequence
+            if _allowed(context, elem, key, token=None) is AccessDecision.ALLOW
+        )
     else:
         rv = sum(decimal_arg(elem, 0) for elem in sequence)
     if isinstance(rv, Decimal):
@@ -283,6 +428,31 @@ def _str_if_not(val: object) -> str:
     if not isinstance(val, str):
         return str(val)
     return val
+
+
+def _item(
+    context: Optional[RenderContext],
+    sequence: Any,
+    key: object,
+    default: object = None,
+    token: object = None,
+) -> Any:
+    if context is None:
+        return _getitem(sequence, key, default)
+    return context.access_item(
+        sequence, key, default=default, token=token
+    )
+
+
+def _allowed(
+    context: Optional[RenderContext],
+    sequence: Any,
+    key: object,
+    token: object = None,
+) -> AccessDecision:
+    if context is None:
+        return AccessDecision.ALLOW
+    return context.allow_item(sequence, key, token=token)
 
 
 def _getitem(sequence: Any, key: object, default: object = None) -> Any:
@@ -327,3 +497,4 @@ class _Null:
 
 
 _NULL = _Null()
+_DENIED = object()

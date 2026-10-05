@@ -244,6 +244,18 @@ class UndefinedError(LiquidError):
     """Exception raised by the StrictUndefined type."""
 
 
+class AccessDeniedError(LiquidError):
+    """Exception raised when an access policy denies a template read."""
+
+
+class AccessDecisionSignal(Exception):
+    """Internal signal used by access policies without importing access.py."""
+
+    def __init__(self, decision: object):
+        super().__init__(str(decision))
+        self.decision = decision
+
+
 class BreakLoop(LiquidInterrupt):
     """Exception raised when a BreakNode is rendered."""
 

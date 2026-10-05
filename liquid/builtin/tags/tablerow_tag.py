@@ -10,6 +10,7 @@ from typing import Iterator
 from typing import Mapping
 from typing import TextIO
 
+from liquid.access import is_access_boundary
 from liquid.ast import BlockNode
 from liquid.ast import Node
 from liquid.builtin.expressions import Identifier
@@ -210,6 +211,9 @@ class TablerowNode(Node):
 
         with context.loop(namespace, tablerow):
             for item in tablerow:
+                if is_access_boundary(item):
+                    item = object.__getattribute__(item, "value")
+                context.bind_loop_alias(name, item)
                 namespace[name] = item
                 buffer.write(f'<td class="col{tablerow.col}">')
 
@@ -259,6 +263,9 @@ class TablerowNode(Node):
 
         with context.extend(namespace):
             for item in tablerow:
+                if is_access_boundary(item):
+                    item = object.__getattribute__(item, "value")
+                context.bind_loop_alias(name, item)
                 namespace[name] = item
                 buffer.write(f'<td class="col{tablerow.col}">')
 

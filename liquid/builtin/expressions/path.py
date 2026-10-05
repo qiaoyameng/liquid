@@ -23,6 +23,7 @@ from liquid.token import TOKEN_INTEGER
 from liquid.token import TOKEN_LBRACKET
 from liquid.token import TOKEN_RBRACKET
 from liquid.token import TOKEN_WORD
+from liquid.undefined import is_undefined
 
 if TYPE_CHECKING:
     from liquid import Environment
@@ -81,17 +82,34 @@ class Path(Expression):
         return self.path[0]
 
     def evaluate(self, context: RenderContext) -> object:
+        evaluated: list[object] = []
+        for segment in self.path:
+            if isinstance(segment, Path):
+                value = segment.evaluate(context)
+                if is_undefined(value):
+                    return value
+                evaluated.append(value)
+            else:
+                evaluated.append(segment)
+
         return context.get(
-            [p.evaluate(context) if isinstance(p, Path) else p for p in self.path],
+            evaluated,
             token=self.token,
         )
 
     async def evaluate_async(self, context: RenderContext) -> object:
+        evaluated: list[object] = []
+        for segment in self.path:
+            if isinstance(segment, Path):
+                value = await segment.evaluate_async(context)
+                if is_undefined(value):
+                    return value
+                evaluated.append(value)
+            else:
+                evaluated.append(segment)
+
         return await context.get_async(
-            [
-                await p.evaluate_async(context) if isinstance(p, Path) else p
-                for p in self.path
-            ],
+            evaluated,
             token=self.token,
         )
 

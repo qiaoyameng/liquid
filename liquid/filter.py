@@ -12,6 +12,8 @@ from typing import Iterator
 from typing import Optional
 from typing import Union
 
+from .access import _AccessBoundary
+from .access import _RestrictedSequence
 from .exceptions import FilterArgumentError
 from .exceptions import FilterItemTypeError
 from .exceptions import FilterValueError
@@ -47,6 +49,21 @@ def with_environment(_filter: FilterT) -> FilterT:
     """
     _filter.with_environment = True  # type: ignore
     return _filter
+
+
+def trusted_filter(
+    _filter: Optional[FilterT] = None, *, field_access: bool = False
+) -> FilterT | Callable[[FilterT], FilterT]:
+    """Mark a filter as an explicit trusted boundary for sourced data."""
+
+    def decorate(func: FilterT) -> FilterT:
+        func.trusted_filter = True  # type: ignore[attr-defined]
+        func.trusted_boundary = field_access  # type: ignore[attr-defined]
+        return func
+
+    if _filter is None:
+        return decorate
+    return decorate(_filter)
 
 
 def string_filter(_filter: FilterT) -> FilterT:
@@ -219,9 +236,36 @@ def math_filter(_filter: FilterT) -> FilterT:
 
 def flatten(it: Iterable[Any], level: int = 5) -> list[object]:
     """Flatten nested "liquid arrays" into a list."""
+    if isinstance(it, _RestrictedSequence):
+        items = object.__getattribute__(it, "items")
+        return _RestrictedSequence(
+            list(_flatten(items, level)),
+            object.__getattribute__(it, "root"),
+            object.__getattribute__(it, "origin"),
+        )
+    if isinstance(it, _AccessBoundary):
+        value = object.__getattribute__(it, "value")
+        flattened = flatten(value, level=level)
+        return _AccessBoundary(
+            flattened,
+            object.__getattribute__(it, "root"),
+            object.__getattribute__(it, "origin"),
+        )
 
     def _flatten(it: Iterable[Any], level: int = 5) -> Iterator[object]:
         for obj in it:
+            if isinstance(obj, _RestrictedSequence):
+                yield from _flatten(
+                    object.__getattribute__(obj, "items"), level=level
+                )
+                continue
+            if isinstance(obj, _AccessBoundary):
+                value = object.__getattribute__(obj, "value")
+                if isinstance(value, (list, tuple)):
+                    yield from _flatten(value, level=level)
+                    continue
+                yield obj
+                continue
             if not level or not isinstance(obj, (list, tuple)):
                 yield obj
             else:

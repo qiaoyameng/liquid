@@ -15,6 +15,7 @@ from typing import Type
 from typing import Union
 
 from . import builtin
+from .access import AccessPolicy
 from .analyze_tags import InnerTagMap
 from .analyze_tags import TagAnalysis
 from .builtin import DictLoader
@@ -78,6 +79,8 @@ class Environment:
             output unless they've been explicitly marked as "safe".
         globals: An optional mapping that will be added to the render context of any
             template loaded from this environment.
+        access_policy: An optional policy authorizing root and field paths. When
+            configured, denied reads can return an undefined value or raise.
     """
 
     block_nesting_limit: ClassVar[int] = 30
@@ -157,6 +160,7 @@ class Environment:
         template_comments: bool = False,
         comment_start_string: str = "{#",
         comment_end_string: str = "#}",
+        access_policy: Optional[AccessPolicy] = None,
     ):
         self.tag_start_string = tag_start_string
         self.tag_end_string = tag_end_string
@@ -184,6 +188,7 @@ class Environment:
         self.strict_filters: bool = strict_filters
         self.autoescape: bool = autoescape
         self.mode: Mode = tolerance
+        self.access_policy: Optional[AccessPolicy] = access_policy
 
         self.tags: dict[str, Tag] = {}
         """The environment's tag register, mapping tag names to instances of `Tag`."""
@@ -249,6 +254,11 @@ class Environment:
         builtin.register(self)
         if extra:
             register_extra_tags_and_filters(self)
+
+        for filter_func in self.filters.values():
+            if not getattr(filter_func, "trusted_filter", False):
+                filter_func.trusted_filter = True
+                filter_func.trusted_boundary = False
 
     def _parse(self, source: str) -> list[Node]:
         """Parse _source_ as a Liquid template.
