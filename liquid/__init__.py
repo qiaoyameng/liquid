@@ -15,6 +15,9 @@ from .expression import Expression
 
 from .context import RenderContext
 from .context import FutureContext
+from .exceptions import DeniedAccessError
+from .policy import AccessPolicy
+from .policy import RestrictedUndefined
 from .undefined import DebugUndefined
 from .undefined import is_undefined
 from .undefined import FalsyStrictUndefined

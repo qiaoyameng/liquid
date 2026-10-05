@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from .ast import Node
     from .context import RenderContext
     from .loader import BaseLoader
+    from .policy import AccessPolicy
     from .tag import Tag
     from .token import Token
 
@@ -78,6 +79,9 @@ class Environment:
             output unless they've been explicitly marked as "safe".
         globals: An optional mapping that will be added to the render context of any
             template loaded from this environment.
+        access_policy: An optional `liquid.policy.AccessPolicy` restricting which
+            data roots and field paths templates can read. Defaults to `None`,
+            meaning all template data is accessible.
     """
 
     block_nesting_limit: ClassVar[int] = 30
@@ -157,6 +161,7 @@ class Environment:
         template_comments: bool = False,
         comment_start_string: str = "{#",
         comment_end_string: str = "#}",
+        access_policy: Optional[AccessPolicy] = None,
     ):
         self.tag_start_string = tag_start_string
         self.tag_end_string = tag_end_string
@@ -184,6 +189,7 @@ class Environment:
         self.strict_filters: bool = strict_filters
         self.autoescape: bool = autoescape
         self.mode: Mode = tolerance
+        self.access_policy: Optional[AccessPolicy] = access_policy
 
         self.tags: dict[str, Tag] = {}
         """The environment's tag register, mapping tag names to instances of `Tag`."""
@@ -227,7 +233,9 @@ class Environment:
         """
         self.tags[tag.name] = tag(self)
 
-    def add_filter(self, name: str, func: Callable[..., Any]) -> None:
+    def add_filter(
+        self, name: str, func: Callable[..., Any], *, trusted: bool = False
+    ) -> None:
         """Register a filter function with the environment.
 
         Args:
@@ -238,7 +246,13 @@ class Environment:
                 expression the filter is applied to. If the filter needs access to the
                 active environment or render context, use `liquid.filer.with_context`
                 and/or `liquid.filter.with_environment` decorators.
+            trusted: If `True` and an access policy is active, the filter will
+                receive raw, unwrapped objects instead of policy-guarded values.
+                Only trust filters that do not leak protected data. Defaults to
+                `False`.
         """
+        if trusted:
+            func.trusted = True  # type: ignore[attr-defined]
         self.filters[name] = func
 
     def setup_tags_and_filters(self, *, extra: bool = False) -> None:

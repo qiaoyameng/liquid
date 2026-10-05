@@ -69,6 +69,7 @@ nav:
       - Expression: "api/expression.md"
       - Render context: "api/render_context.md"
       - Filter helpers: "api/filter.md"
+      - Access policy: "api/policy.md"
       - Tag: "api/tag.md"
       - Undefined: "api/undefined.md"
       - Tokens: "api/tokens.md"

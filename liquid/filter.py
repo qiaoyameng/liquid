@@ -49,6 +49,21 @@ def with_environment(_filter: FilterT) -> FilterT:
     return _filter
 
 
+def trusted_filter(_filter: FilterT) -> FilterT:
+    """Mark a filter function as trusted by the active access policy.
+
+    When an access policy is active, filters receive policy-guarded values by
+    default. A filter decorated with `trusted_filter` explicitly declares a
+    trusted boundary and will receive raw, unwrapped objects instead. Only
+    trust filters that do not leak protected data.
+
+    Args:
+        _filter: The filter function to decorate.
+    """
+    _filter.trusted = True  # type: ignore
+    return _filter
+
+
 def string_filter(_filter: FilterT) -> FilterT:
     """A filter function decorator that converts the first argument to a string."""
 

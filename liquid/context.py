@@ -11,6 +11,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from functools import partial
 from functools import reduce
+from functools import wraps
 from io import StringIO
 from operator import mul
 from typing import TYPE_CHECKING
@@ -33,6 +34,9 @@ from .exceptions import UnknownFilterError
 from .exceptions import lookup_warning
 from .mode import Mode
 from .output import LimitedStringIO
+from .policy import AccessPolicyState
+from .policy import GuardedValue
+from .policy import unwrap
 from .undefined import UNDEFINED
 from .undefined import Undefined
 from .utils import ReadOnlyChainMap
@@ -55,6 +59,7 @@ class RenderContext:
 
     __slots__ = (
         "_copy_depth",
+        "access_policy_state",
         "autoescape",
         "counters",
         "disabled_tags",
@@ -80,9 +85,22 @@ class RenderContext:
         parent_context: Optional[RenderContext] = None,
         loop_iteration_carry: int = 1,
         local_namespace_size_carry: int = 0,
+        access_policy_state: Optional[AccessPolicyState] = None,
     ):
         self.env: Environment = template.env
         self.template = template
+
+        # Per-render state for the environment's access policy, if any. A fresh
+        # state is created for every render, unless one is passed in from a
+        # parent context (see `copy`).
+        if access_policy_state is not None:
+            self.access_policy_state = access_policy_state
+        elif self.env.access_policy is not None:
+            self.access_policy_state = AccessPolicyState(
+                self.env.access_policy, self
+            )
+        else:
+            self.access_policy_state = None
 
         # A namespace for template local variables. Those that are bound with
         # `assign` or `capture`.
@@ -193,6 +211,11 @@ class RenderContext:
                 return self.env.undefined(root, hint=hint, token=token)
             return default
 
+        if self.access_policy_state is not None:
+            return self._get_guarded(
+                root, obj, list(it), path, token=token, default=default
+            )
+
         for i, segment in enumerate(it):
             try:
                 obj = self.get_item(obj, segment)
@@ -208,6 +231,106 @@ class RenderContext:
                 return default
 
         return obj
+
+    def _get_guarded(
+        self,
+        root: str,
+        obj: Any,
+        segments: list[object],
+        path: list[object],
+        *,
+        token: Optional[Token],
+        default: object,
+    ) -> object:
+        """Resolve _segments_ from _obj_, enforcing the active access policy.
+
+        Access is authorized against the value's provenance - its originating
+        data root and field path - before each segment is read.
+        """
+        state = self.access_policy_state
+        assert state is not None
+
+        if isinstance(obj, GuardedValue):
+            eff_root = obj.root
+            eff_path = obj.path
+            obj = obj.value
+        else:
+            eff_root = root
+            eff_path: tuple[Any, ...] = ()
+
+        if not state.allows(eff_root, eff_path):
+            return state.deny(eff_root, eff_path, token=token)
+
+        for i, segment in enumerate(segments):
+            if isinstance(obj, GuardedValue):
+                eff_root = obj.root
+                eff_path = obj.path
+                obj = obj.value
+            eff_path = eff_path + (segment,)
+            if not state.allows(eff_root, eff_path):
+                return state.deny(eff_root, eff_path, token=token)
+            try:
+                obj = self.get_item(obj, segment)
+            except (KeyError, TypeError):
+                if default == UNDEFINED:
+                    hint = f"{_segments_str(path[: i + 2])} is undefined"
+                    return self.env.undefined(root, hint=hint, token=token)
+                return default
+            except IndexError:
+                if default == UNDEFINED:
+                    hint = "index out of range"
+                    return self.env.undefined(root, hint=hint, token=token)
+                return default
+
+        return state.guard(obj, eff_root, eff_path)
+
+    async def _get_guarded_async(
+        self,
+        root: str,
+        obj: Any,
+        segments: list[object],
+        path: list[object],
+        *,
+        token: Optional[Token],
+        default: object,
+    ) -> object:
+        """An async version of `_get_guarded`."""
+        state = self.access_policy_state
+        assert state is not None
+
+        if isinstance(obj, GuardedValue):
+            eff_root = obj.root
+            eff_path = obj.path
+            obj = obj.value
+        else:
+            eff_root = root
+            eff_path: tuple[Any, ...] = ()
+
+        if not state.allows(eff_root, eff_path):
+            return state.deny(eff_root, eff_path, token=token)
+
+        for i, segment in enumerate(segments):
+            if isinstance(obj, GuardedValue):
+                eff_root = obj.root
+                eff_path = obj.path
+                obj = obj.value
+            eff_path = eff_path + (segment,)
+            if not state.allows(eff_root, eff_path):
+                return state.deny(eff_root, eff_path, token=token)
+            try:
+                obj = await self.get_item_async(obj, segment)
+            except (KeyError, TypeError):
+                if default == UNDEFINED:
+                    hint = f"{_segments_str(path[: i + 2])} is undefined"
+                    return self.env.undefined(root, hint=hint, token=token)
+                return default
+            except IndexError:
+                if default == UNDEFINED:
+                    hint = "index out of range"
+                    return self.env.undefined(root, hint=hint, token=token)
+                return default
+
+        return state.guard(obj, eff_root, eff_path)
 
     async def get_async(  # noqa: PLR0911
         self,
@@ -234,6 +357,11 @@ class RenderContext:
                 hint = f"{root!r} is undefined"
                 return self.env.undefined(root, hint=hint, token=token)
             return default
+
+        if self.access_policy_state is not None:
+            return await self._get_guarded_async(
+                root, obj, list(it), path, token=token, default=default
+            )
 
         for i, segment in enumerate(it):
             try:
@@ -295,10 +423,20 @@ class RenderContext:
                     filter_func.filter_async,
                     **kwargs,
                 )
-                return _filter_func
-            return partial(filter_func, **kwargs)
+                func: Callable[..., object] = _filter_func
+            else:
+                func = partial(filter_func, **kwargs)
+        else:
+            func = filter_func
 
-        return filter_func
+        if self.access_policy_state is not None and getattr(
+            filter_func, "trusted", False
+        ):
+            # A filter that has explicitly declared a trusted boundary
+            # receives raw, unwrapped objects instead of guarded values.
+            func = _trusted_filter_wrapper(func)
+
+        return func
 
     def get_template(self, name: str) -> BoundTemplate:
         """Load a template from the environment."""
@@ -438,6 +576,7 @@ class RenderContext:
                 parent_context=self,
                 loop_iteration_carry=loop_iteration_carry,
                 local_namespace_size_carry=self.get_size_of_locals(),
+                access_policy_state=self.access_policy_state,
             )
             # This might need to be generalized so the caller can specify which
             # tag namespaces need to be copied.
@@ -451,6 +590,7 @@ class RenderContext:
                 parent_context=self,
                 loop_iteration_carry=loop_iteration_carry,
                 local_namespace_size_carry=self.get_size_of_locals(),
+                access_policy_state=self.access_policy_state,
             )
 
         return ctx
@@ -613,3 +753,30 @@ def _segments_str(segments: list[object]) -> str:
 
 def _no_op_filter(left: object, *_args: object, **_kwargs: object) -> object:
     return left
+
+
+def _trusted_filter_wrapper(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Unwrap `GuardedValue` arguments before calling a trusted filter."""
+
+    @wraps(func)
+    def wrapper(left: object, *args: object, **kwargs: object) -> object:
+        return func(
+            unwrap(left),
+            *(unwrap(arg) for arg in args),
+            **{key: unwrap(val) for key, val in kwargs.items()},
+        )
+
+    if hasattr(func, "filter_async"):
+
+        async def async_wrapper(
+            left: object, *args: object, **kwargs: object
+        ) -> object:
+            return await func.filter_async(  # type: ignore[attr-defined]
+                unwrap(left),
+                *(unwrap(arg) for arg in args),
+                **{key: unwrap(val) for key, val in kwargs.items()},
+            )
+
+        wrapper.filter_async = async_wrapper  # type: ignore[attr-defined]
+
+    return wrapper

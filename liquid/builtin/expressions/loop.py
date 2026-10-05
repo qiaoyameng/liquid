@@ -16,6 +16,7 @@ from liquid.exceptions import LiquidTypeError
 from liquid.exceptions import LiquidValueError
 from liquid.expression import Expression
 from liquid.limits import to_int
+from liquid.policy import GuardedValue
 from liquid.token import TOKEN_ASSIGN
 from liquid.token import TOKEN_COLON
 from liquid.token import TOKEN_COLS
@@ -93,6 +94,10 @@ class LoopExpression(Expression):
     def _to_iter(
         self, obj: object, context: RenderContext
     ) -> tuple[Iterator[Any], int]:
+        if isinstance(obj, GuardedValue):
+            # A policy-guarded value. Iterate guarded items so access
+            # provenance is preserved for loop aliases.
+            return obj.__liquid_iter__()
         if isinstance(obj, Mapping):
             return iter(obj.items()), len(obj)
         if isinstance(obj, range):

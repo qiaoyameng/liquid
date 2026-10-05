@@ -244,6 +244,14 @@ class UndefinedError(LiquidError):
     """Exception raised by the StrictUndefined type."""
 
 
+class DeniedAccessError(LiquidError):
+    """Exception raised when an access policy denies reading a value.
+
+    The exception message identifies the denied path only. It never includes
+    the denied value.
+    """
+
+
 class BreakLoop(LiquidInterrupt):
     """Exception raised when a BreakNode is rendered."""
 
