@@ -1,5 +1,11 @@
 # Python Liquid Change Log
 
+# Version 2.4.0 (unreleased)
+
+**Features**
+
+- Added opt-in `component`, `slot` and `yield` tags. Enable them with `Environment(extra=True)`. A component renders an isolated partial template that can `yield` named `slot` blocks provided by the caller, with optional default content. Slots keep their call-site scope, accept limited keyword arguments from `yield`, and isolate local assignments between renders. See the experimental tags documentation for details.
+
 # Version 2.3.3
 
 **Fixes**
