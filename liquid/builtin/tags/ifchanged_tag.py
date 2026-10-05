@@ -41,6 +41,9 @@ class IfChangedNode(Node):
 
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
+        if context.contextual_escape:
+            return context.render_ifchanged_html(self.block, buffer)
+
         # Render to an intermediate buffer.
         buf = context.get_buffer(buffer)
         self.block.render(context, buf)
@@ -55,6 +58,11 @@ class IfChangedNode(Node):
         self, context: RenderContext, buffer: TextIO
     ) -> int:
         """Render the node to the output buffer."""
+        if context.contextual_escape:
+            # HTML context is unchanged across sync/async boundaries; render
+            # via the shared helper for consistent behavior.
+            return context.render_ifchanged_html(self.block, buffer)
+
         # Render to an intermediate buffer.
         buf = context.get_buffer(buffer)
         await self.block.render_async(context, buf)

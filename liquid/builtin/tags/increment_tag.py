@@ -37,7 +37,10 @@ class IncrementNode(Node):
 
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
-        return buffer.write(str(context.increment(self.name)))
+        val = context.increment(self.name)
+        if context.contextual_escape:
+            return context.write_dynamic_html(val, buffer, token=self.token)
+        return buffer.write(str(val))
 
     def template_scope(self) -> Iterable[Identifier]:
         """Return variables this node adds to the template local scope."""

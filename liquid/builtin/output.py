@@ -36,18 +36,20 @@ class OutputNode(Node):
 
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
-        return buffer.write(
-            to_liquid_string(self.expression.evaluate(context), context.autoescape)
-        )
+        val = self.expression.evaluate(context)
+        if context.contextual_escape:
+            return context.write_dynamic_html(val, buffer, token=self.token)
+        return buffer.write(to_liquid_string(val, context.autoescape))
 
     async def render_to_output_async(
         self, context: RenderContext, buffer: TextIO
     ) -> int:
         """Render the node to the output buffer."""
+        val = await self.expression.evaluate_async(context)
+        if context.contextual_escape:
+            return context.write_dynamic_html(val, buffer, token=self.token)
         return buffer.write(
-            to_liquid_string(
-                await self.expression.evaluate_async(context), context.autoescape
-            )
+            to_liquid_string(val, context.autoescape)
         )
 
     def expressions(self) -> Iterable[Expression]:

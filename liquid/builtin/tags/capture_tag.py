@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from typing import Iterable
 from typing import TextIO
 
-from liquid import Markup
 from liquid.ast import BlockNode
 from liquid.ast import Node
 from liquid.builtin.expressions import parse_identifier
@@ -45,7 +44,13 @@ class CaptureNode(Node):
         return f"{{% capture {self.name} %}}{self.block}{{% endcapture %}}"
 
     def _assign(self, context: RenderContext, buf: StringIO) -> None:
-        if context.autoescape:
+        if context.contextual_escape:
+            from liquid.safehtml.escape import SafeFragment
+
+            context.assign(self.name, SafeFragment(buf.getvalue()))
+        elif context.autoescape:
+            from liquid import Markup
+
             context.assign(self.name, Markup(buf.getvalue()))
         else:
             context.assign(self.name, buf.getvalue())
@@ -53,7 +58,10 @@ class CaptureNode(Node):
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
         buf = context.get_buffer(buffer)
-        self.block.render(context, buf)
+        if context.contextual_escape:
+            context.render_capture_html(self.block, buf)
+        else:
+            self.block.render(context, buf)
         self._assign(context, buf)
         return False
 
@@ -62,7 +70,22 @@ class CaptureNode(Node):
     ) -> int:
         """Render the node to the output buffer."""
         buf = context.get_buffer(buffer)
-        await self.block.render_async(context, buf)
+        if context.contextual_escape:
+            from liquid.safehtml.context import HtmlState
+
+            html_state = context.html_state
+            inner_state = HtmlState(
+                allowed_url_schemes=html_state.allowed_url_schemes,
+            )
+            saved = context.html_state
+            context.html_state = inner_state
+            try:
+                await self.block.render_async(context, buf)
+                inner_state.finish()
+            finally:
+                context.html_state = saved
+        else:
+            await self.block.render_async(context, buf)
         self._assign(context, buf)
         return False
 

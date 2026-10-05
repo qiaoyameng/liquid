@@ -1,5 +1,22 @@
 # Python Liquid Change Log
 
+# Unreleased
+
+**Features**
+
+- Added an opt-in, context aware HTML escaping mode. Enable it with
+  `Environment(contextual_escape=True)`. Dynamic values are escaped for the
+  exact HTML position they appear in: HTML text, quoted attribute values, or
+  designated URL attributes (`href`, `src`, ...), where the assembled URL is
+  checked against an allow-list of protocols (with whitespace and HTML entity
+  obfuscation handled). Static analysis tracks the HTML context produced by
+  literal template text and checks conditional branches, loops, captures and
+  included snippets for consistency. Dynamic tag/attribute names, unquoted
+  attribute values and output inside `script`/`style`/... are rejected rather
+  than escaped with a guessed policy. Marked-safe strings are privileged in
+  text context only, never in attribute or URL contexts. The default mode is
+  unchanged.
+
 # Version 2.3.3
 
 **Fixes**

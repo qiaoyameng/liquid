@@ -23,8 +23,12 @@ class ContentNode(Node):
     def __str__(self) -> str:
         return self.text
 
-    def render_to_output(self, _: RenderContext, buffer: TextIO) -> int:
+    def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
+        if context.contextual_escape:
+            return context.write_literal_html(
+                self.text, buffer, token=self.token
+            )
         return buffer.write(self.text)
 
 

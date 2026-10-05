@@ -56,10 +56,12 @@ class RenderContext:
     __slots__ = (
         "_copy_depth",
         "autoescape",
+        "contextual_escape",
         "counters",
         "disabled_tags",
         "env",
         "globals",
+        "html_state",
         "local_namespace_size_carry",
         "locals",
         "loop_iteration_carry",
@@ -121,6 +123,21 @@ class RenderContext:
 
         # Indicates if HTML auto-escaping is enabled.
         self.autoescape = self.env.autoescape
+
+        # Indicates if context aware HTML escaping is enabled.
+        self.contextual_escape = getattr(self.env, "contextual_escape", False)
+
+        # Tracks the HTML context of literal template output while rendering.
+        # It is only used when contextual escaping is enabled.
+        self.html_state: object = None
+        if self.contextual_escape:
+            from .safehtml.context import HtmlState
+
+            self.html_state = HtmlState(
+                allowed_url_schemes=getattr(
+                    self.env, "allowed_url_schemes", None
+                )
+            )
 
         # Count of the number of times `copy` was called in creating this context. This
         # helps us guard against recursive use of the "render" tag, or at least fail
@@ -472,6 +489,94 @@ class RenderContext:
         carry = buf.size if isinstance(buf, LimitedStringIO) else 0
         return LimitedStringIO(limit=self.env.output_stream_limit - carry)
 
+    # -- contextual escaping ---------------------------------------------
+
+    def write_literal_html(
+        self, text: str, buffer: TextIO, *, token: object = None
+    ) -> int:
+        """Write static template text while tracking its HTML context."""
+        if self.contextual_escape and not _is_null_buffer(buffer):
+            assert self.html_state is not None
+            self.html_state.feed_literal(text, token=token)
+        return buffer.write(text)
+
+    def write_dynamic_html(
+        self, val: object, buffer: TextIO, *, token: object = None
+    ) -> int:
+        """Escape and write a dynamic value for the current HTML context."""
+        from .safehtml import escape as ctx_escape
+
+        # Blank control flow blocks are rendered into a null buffer as part
+        # of blank-line suppression. Do not involve the HTML state machine.
+        if _is_null_buffer(buffer):
+            from .stringify import to_liquid_string
+
+            return buffer.write(
+                to_liquid_string(val, autoescape=True)
+            )
+
+        state = self.html_state
+        assert state is not None
+        policy = state.dynamic_policy(token=token)
+        text, is_markup = ctx_escape.contextual_to_liquid_string(val)
+
+        if policy == "text":
+            if is_markup:
+                # Explicitly safe values may be emitted verbatim in text.
+                out = text
+            else:
+                out = ctx_escape.escape_text(text)
+        elif policy == "attr":
+            # Marked-safe values receive no privilege in attribute context.
+            out = ctx_escape.escape_attribute(text)
+        else:  # url
+            out = ctx_escape.escape_attribute(text)
+
+        written = buffer.write(out)
+
+        if policy == "url":
+            # Track the raw dynamic part so the assembled URL can be
+            # validated when the attribute closes.
+            state.url_parts.append((text, False))
+
+        return written
+
+    def render_capture_html(self, block: object, buffer: TextIO) -> str:
+        """Render a block for {% capture %} under contextual escaping."""
+        from .safehtml.context import HtmlState
+
+        state = self.html_state
+        assert state is not None
+        inner_state = HtmlState(
+            allowed_url_schemes=state.allowed_url_schemes,
+        )
+        saved = self.html_state
+        self.html_state = inner_state
+        try:
+            block.render(self, buffer)
+            inner_state.finish()
+        finally:
+            self.html_state = saved
+        return buffer.getvalue()
+
+    def render_ifchanged_html(self, block: object, buffer: TextIO) -> int:
+        """Render an ifchanged block, preserving HTML context consistency."""
+        state = self.html_state
+        assert state is not None
+        branch_state = state.clone()
+        buf = self.get_buffer(buffer)
+        saved = self.html_state
+        self.html_state = branch_state
+        try:
+            block.render(self, buf)
+        finally:
+            self.html_state = saved
+        val = buf.getvalue()
+        if self.ifchanged(val):
+            state.copy_from(branch_state)
+            return buffer.write(val)
+        return 0
+
     def get_item(self, obj: Any, key: Any) -> Any:  # noqa: PLR0911, PLR0912
         """An item getter used when resolving a Liquid path.
 
@@ -572,6 +677,13 @@ class RenderContext:
 
 class FutureContext(RenderContext):
     """A render context configured for maximum compatibility with the Ruby liquid."""
+
+
+def _is_null_buffer(buffer: object) -> bool:
+    """Return True if _buffer_ discards all writes."""
+    from .output import NullIO
+
+    return isinstance(buffer, NullIO)
 
 
 class BuiltIn(Mapping[str, object]):

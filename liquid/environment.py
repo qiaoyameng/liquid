@@ -76,6 +76,14 @@ class Environment:
             undefined filter. Otherwise undefined filters are silently ignored.
         autoescape: If `True`, all render context values will be HTML-escaped before
             output unless they've been explicitly marked as "safe".
+        contextual_escape: If `True`, enable opt-in, context aware HTML
+            escaping. Dynamic values are escaped according to the HTML context
+            they appear in (text, quoted attribute or URL attribute), and
+            templates that can not be proven safe are rejected. Defaults to
+            `False`, preserving the existing behavior.
+        allowed_url_schemes: An optional frozenset of URL schemes permitted in
+            URL-bearing attributes when contextual escaping is enabled. When
+            `None`, a conservative default set is used.
         globals: An optional mapping that will be added to the render context of any
             template loaded from this environment.
     """
@@ -153,6 +161,8 @@ class Environment:
         undefined: Type[Undefined] = Undefined,
         strict_filters: bool = True,
         autoescape: bool = False,
+        contextual_escape: bool = False,
+        allowed_url_schemes: Optional[frozenset[str]] = None,
         globals: Optional[Mapping[str, object]] = None,  # noqa: A002
         template_comments: bool = False,
         comment_start_string: str = "{#",
@@ -182,7 +192,15 @@ class Environment:
 
         self.undefined: Type[Undefined] = undefined
         self.strict_filters: bool = strict_filters
-        self.autoescape: bool = autoescape
+        self.contextual_escape: bool = contextual_escape
+        # Contextual escaping implies ordinary HTML auto escaping semantics.
+        self.autoescape: bool = bool(autoescape or contextual_escape)
+        if allowed_url_schemes is None:
+            from .safehtml.escape import DEFAULT_ALLOWED_URL_SCHEMES
+
+            self.allowed_url_schemes: frozenset[str] = DEFAULT_ALLOWED_URL_SCHEMES
+        else:
+            self.allowed_url_schemes = frozenset(allowed_url_schemes)
         self.mode: Mode = tolerance
 
         self.tags: dict[str, Tag] = {}
@@ -203,6 +221,9 @@ class Environment:
                 self.comment_start_string,
                 self.comment_end_string,
                 self.mode,
+                self.autoescape,
+                self.contextual_escape,
+                self.allowed_url_schemes,
             )
         )
 
@@ -259,6 +280,20 @@ class Environment:
         token_iter = self.tokenizer()(source)
         return parser.parse(TokenStream(token_iter))
 
+    def validate_contextual_html(self, template: BoundTemplate) -> None:
+        """Statically validate _template_ for contextual HTML escaping.
+
+        Walks the template and all string-literal includes, rejecting dynamic
+        output in unsupported HTML contexts and inconsistent branches.
+        """
+        from .safehtml.validate import TemplateValidator
+
+        stack = getattr(self, "_contextual_validating", None)
+        if stack is None:
+            stack = []
+            self._contextual_validating = stack
+        TemplateValidator(self, stack=stack).validate_template(template)
+
     def from_string(
         self,
         source: str,
@@ -285,7 +320,7 @@ class Environment:
             raise err
         except Exception as err:  # noqa: BLE001
             raise LiquidError("unexpected liquid parsing error", token=None) from err
-        return self.template_class(
+        template = self.template_class(
             env=self,
             name=name,
             path=path,
@@ -293,6 +328,9 @@ class Environment:
             globals=self.make_globals(globals),
             matter=matter,
         )
+        if self.contextual_escape:
+            self.validate_contextual_html(template)
+        return template
 
     def parse(
         self,
@@ -508,6 +546,8 @@ def get_implicit_environment(
     undefined: Type[Undefined],
     strict_filters: bool,
     autoescape: bool,
+    contextual_escape: bool,
+    allowed_url_schemes: Optional[frozenset[str]],
     globals: Optional[Mapping[str, object]],  # noqa: A002
     template_comments: bool,
     comment_start_string: str,
@@ -525,6 +565,8 @@ def get_implicit_environment(
         undefined=undefined,
         strict_filters=strict_filters,
         autoescape=autoescape,
+        contextual_escape=contextual_escape,
+        allowed_url_schemes=allowed_url_schemes,
         globals=globals,
         template_comments=template_comments,
         comment_start_string=comment_start_string,
@@ -549,6 +591,8 @@ def Template(  # noqa: N802, D417
     undefined: Type[Undefined] = Undefined,
     strict_filters: bool = True,
     autoescape: bool = False,
+    contextual_escape: bool = False,
+    allowed_url_schemes: Optional[frozenset[str]] = None,
     globals: Optional[Mapping[str, object]] = None,  # noqa: A002
     template_comments: bool = False,
     comment_start_string: str = "{#",
@@ -586,6 +630,9 @@ def Template(  # noqa: N802, D417
             undefined filter. Otherwise undefined filters are silently ignored.
         autoescape: If `True`, all render context values will be HTML-escaped before
             output unless they've been explicitly marked as "safe".
+        contextual_escape: If `True`, enable opt-in context aware HTML escaping.
+        allowed_url_schemes: URL schemes allowed in URL-bearing attributes when
+            contextual escaping is enabled.
         globals: An optional mapping that will be added to the render context of any
             template loaded from this environment.
     """
@@ -602,6 +649,8 @@ def Template(  # noqa: N802, D417
         undefined=undefined,
         strict_filters=strict_filters,
         autoescape=autoescape,
+        contextual_escape=contextual_escape,
+        allowed_url_schemes=allowed_url_schemes,
         globals=None,
         template_comments=template_comments,
         comment_start_string=comment_start_string,

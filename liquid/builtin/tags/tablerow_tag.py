@@ -205,13 +205,18 @@ class TablerowNode(Node):
             "tablerowloop": tablerow,
         }
 
-        buffer.write('<tr class="row1">\n')
+        _literal = (
+            context.write_literal_html
+            if context.contextual_escape
+            else lambda text, buffer, token=None: buffer.write(text)
+        )
+        _literal('<tr class="row1">\n', buffer)
         _break = False
 
         with context.loop(namespace, tablerow):
             for item in tablerow:
                 namespace[name] = item
-                buffer.write(f'<td class="col{tablerow.col}">')
+                _literal(f'<td class="col{tablerow.col}">', buffer)
 
                 try:
                     self.block.render(context=context, buffer=buffer)
@@ -224,15 +229,17 @@ class TablerowNode(Node):
                     if not self.interrupts:
                         raise
 
-                buffer.write("</td>")
+                _literal("</td>", buffer)
 
                 if tablerow.col_last and not tablerow.last:
-                    buffer.write(f'</tr>\n<tr class="row{tablerow.row + 1}">')
+                    _literal(
+                        f'</tr>\n<tr class="row{tablerow.row + 1}">', buffer
+                    )
 
                 if _break:
                     break
 
-        buffer.write("</tr>\n")
+        _literal("</tr>\n", buffer)
         return True
 
     async def render_to_output_async(
@@ -254,13 +261,18 @@ class TablerowNode(Node):
             "tablerowloop": tablerow,
         }
 
-        buffer.write('<tr class="row1">\n')
+        _literal = (
+            context.write_literal_html
+            if context.contextual_escape
+            else lambda text, buffer, token=None: buffer.write(text)
+        )
+        _literal('<tr class="row1">\n', buffer)
         _break = False
 
         with context.extend(namespace):
             for item in tablerow:
                 namespace[name] = item
-                buffer.write(f'<td class="col{tablerow.col}">')
+                _literal(f'<td class="col{tablerow.col}">', buffer)
 
                 try:
                     await self.block.render_async(context=context, buffer=buffer)
@@ -273,15 +285,17 @@ class TablerowNode(Node):
                     if not self.interrupts:
                         raise
 
-                buffer.write("</td>")
+                _literal("</td>", buffer)
 
                 if tablerow.col_last and not tablerow.last:
-                    buffer.write(f'</tr>\n<tr class="row{tablerow.row + 1}">')
+                    _literal(
+                        f'</tr>\n<tr class="row{tablerow.row + 1}">', buffer
+                    )
 
                 if _break:
                     break
 
-        buffer.write("</tr>\n")
+        _literal("</tr>\n", buffer)
         return True
 
     def children(

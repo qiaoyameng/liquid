@@ -157,6 +157,83 @@ env = Environment()
 del env.tags["safe"]
 ```
 
+## Contextual HTML escaping
+
+Simple HTML auto escaping uses the same escape policy for every `{{ ... }}`,
+regardless of whether the variable is rendered as text, inside a quoted
+attribute, or as part of a URL. Contextual escaping adds an explicit, opt-in
+mode that tracks the HTML structure formed by literal template text and
+escapes each dynamic value for the exact context it lands in.
+
+Enable it with `contextual_escape=True`. It is independent from, and implies,
+ordinary `autoescape`; the default behavior is unchanged.
+
+```python
+from liquid import Environment
+
+env = Environment(contextual_escape=True)
+```
+
+The first version supports dynamic values in three positions:
+
+1. **HTML text content** – angle brackets and quotes are entity escaped.
+2. **Quoted attribute values** (`attr="..."` and `attr='...'`) – quotes that
+   could close the attribute are entity escaped.
+3. **Designated URL attributes** (`href`, `src`, `action`, `formaction`,
+   `poster`, `background`, `cite`, `data`, `xlink:href`, ...) – in addition to
+   attribute escaping, the assembled URL is checked against an allow-list of
+   protocols.
+
+### What is rejected
+
+Rather than guessing an escaping policy, contextual escaping refuses
+templates that put dynamic data in a position it does not understand. An
+error is raised either when the template is parsed or when the position is
+reached while rendering:
+
+- dynamic tag names or attribute names (`<{{ tag }}>`, `<div {{ attr }}>`);
+- unquoted attribute values (`<a href={{ url }}>`);
+- output inside raw text elements (`<script>`, `<style>`, `<iframe>`, ...).
+  RCDATA elements (`<title>`, `<textarea>`) accept dynamic values, escaped as
+  text;
+- conditional branches that leave the template in different HTML contexts;
+- `{% capture %}` blocks that are not themselves balanced HTML;
+- included or rendered snippets that are not balanced fragments, or that are
+  used inside a tag/attribute;
+- a template ending inside an unclosed tag or attribute.
+
+### URL protocol policy
+
+URLs are validated after stripping ignorable whitespace and control
+characters, and literal HTML entities in the template are decoded first, so
+obfuscations such as `&#106;avascript:...`, `java&#x00;script:...` or leading
+tabs/newlines can not hide a disallowed protocol. Relative URLs (`/path`,
+`#frag`, `?query`, `//host/path`), empty URLs and the allowed schemes pass.
+
+`javascript:`, `vbscript:`, `data:` and any other non-allow-listed scheme are
+rejected. Override the list with `allowed_url_schemes`.
+
+```python
+env = Environment(
+    contextual_escape=True,
+    allowed_url_schemes=frozenset({"https", "mailto"}),
+)
+```
+
+### Safe strings are not privileged everywhere
+
+Strings marked safe with `Markup()` (or the `safe` filter) are emitted
+verbatim in HTML text context, just like with ordinary auto escaping. They
+receive **no** special privilege inside attribute values, where they are
+escaped, or URL attributes, where they are still subject to the protocol
+check. Content captured with `{% capture %}` is treated the same way: it is
+already escaped template output and is safe in text context, but is escaped
+again when later used inside an attribute.
+
+These errors are always raised, even when the environment tolerance `Mode` is
+`LAX` or `WARN`; an unsafe template is never rendered with a guessed escaping
+policy.
+
 ## Resource limits
 
 For deployments where template authors are untrusted, you can set limits on some resources to avoid malicious templates from consuming too much memory or too many CPU cycles. Limits are set by subclassing [`Environment`](api/environment.md) and setting some class attributes.

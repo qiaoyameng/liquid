@@ -54,6 +54,10 @@ from .messages import extract_from_template
 from .stream import TokenStream
 from .tag import Tag
 
+from .safehtml import DEFAULT_ALLOWED_URL_SCHEMES
+from .safehtml import ContextualEscapeError
+from .safehtml import SafeFragment
+
 from . import future
 
 __version__ = "2.3.3"
@@ -68,7 +72,9 @@ __all__ = (
     "CachingLoaderMixin",
     "ChoiceLoader",
     "ConditionalBlockNode",
+    "ContextualEscapeError",
     "DebugUndefined",
+    "DEFAULT_ALLOWED_URL_SCHEMES",
     "DEFAULT_INNER_TAG_MAP",
     "DictLoader",
     "Environment",
@@ -93,6 +99,7 @@ __all__ = (
     "render_async",
     "render",
     "RenderContext",
+    "SafeFragment",
     "soft_str",
     "StrictDefaultUndefined",
     "StrictUndefined",

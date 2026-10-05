@@ -70,6 +70,10 @@ class CycleNode(Node):
         if index >= len(args):
             return 0
 
+        if context.contextual_escape:
+            return context.write_dynamic_html(
+                args[index], buffer, token=self.token
+            )
         return buffer.write(
             to_liquid_string(args[index], autoescape=context.autoescape)
         )
@@ -96,6 +100,10 @@ class CycleNode(Node):
         if index >= len(args):
             return 0
 
+        if context.contextual_escape:
+            return context.write_dynamic_html(
+                args[index], buffer, token=self.token
+            )
         return buffer.write(
             to_liquid_string(args[index], autoescape=context.autoescape)
         )
