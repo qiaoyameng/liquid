@@ -71,6 +71,14 @@ print(render(source, **data))
         - ('z', 6)
 ```
 
+### Lazy sequences
+
+Use `liquid.LazySequence` for record streams that can only be iterated once and do not provide random access. Implement `__iter__()` and, when the total number of records is known, return it from `__liquid_length__()`. Return `None` when the length is unknown.
+
+`{% for %}` consumes lazy sequences incrementally. With `limit:n`, it pulls at most `n` records to render output; one additional pull may be used only when the source is shorter than the limit and `forloop.last` is rendered. An unlimited loop that renders `forloop.last` uses one terminal pull to discover the end. It never consumes the whole stream only to calculate `forloop.length`.
+
+When the length is unknown, `forloop.length`, `forloop.rindex`, `forloop.rindex0`, `reversed`, `.size`, `| size`, `.last`, and `| last` raise an error instead of inventing a number or consuming the stream. Cursor state used by `offset: continue` is kept only in the current render context for the stream object being rendered.
+
 ## Paths to variables
 
 When referenced in a template, a variable is best viewed as a _path_ to a value, where each path has one or more _segments_. Segments can be property names separated by dots (`foo.bar`), array indexes using bracket notation (`store.products[1]`) or bracketed property names for situations where the property name is held in a variable or contains reserved characters (`product.variant[var]` or `products["something with spaces"]`)

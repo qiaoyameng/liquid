@@ -27,12 +27,15 @@ from typing import Union
 
 from .exceptions import ContextDepthError
 from .exceptions import LiquidError
+from .exceptions import LiquidTypeError
 from .exceptions import LocalNamespaceLimitError
 from .exceptions import LoopIterationLimitError
 from .exceptions import UnknownFilterError
 from .exceptions import lookup_warning
 from .mode import Mode
 from .output import LimitedStringIO
+from .sequence import is_lazy_sequence
+from .sequence import liquid_length
 from .undefined import UNDEFINED
 from .undefined import Undefined
 from .utils import ReadOnlyChainMap
@@ -374,7 +377,18 @@ class RenderContext:
         self, namespace: Mapping[str, object], forloop: ForLoop | TableRow
     ) -> Iterator[RenderContext]:
         """Just like `Context.extend`, but keeps track of ForLoop objects too."""
-        self.raise_for_loop_limit(forloop.length)
+        if hasattr(forloop, "resource_length"):
+            resource_length = forloop.resource_length
+        else:
+            resource_length = forloop.length
+        if resource_length is None:
+            if self.env.loop_iteration_limit is not None:
+                raise LoopIterationLimitError(
+                    "loop iteration limit can't be checked without a length",
+                    token=None,
+                )
+        else:
+            self.raise_for_loop_limit(resource_length)
         self.loops.append(forloop)
         with self.extend(namespace) as context:
             try:
@@ -392,16 +406,27 @@ class RenderContext:
 
     def raise_for_loop_limit(self, length: int = 1) -> None:
         """Raise a `LoopIterationLimitError` if loop stack is bigger than the limit."""
-        if (
-            self.env.loop_iteration_limit
-            and reduce(
-                mul,
-                (loop.length for loop in self.loops),
-                length * self.loop_iteration_carry,
-            )
-            > self.env.loop_iteration_limit
-        ):
+        if not self.env.loop_iteration_limit:
+            return
+
+        def loop_resource_length(loop: ForLoop | TableRow) -> int:
+            return self._loop_resource_length(loop)
+
+        product = reduce(
+            mul,
+            (loop_resource_length(loop) for loop in self.loops),
+            length * self.loop_iteration_carry,
+        )
+
+        if product > self.env.loop_iteration_limit:
             raise LoopIterationLimitError("loop iteration limit reached", token=None)
+
+    @staticmethod
+    def _loop_resource_length(loop: ForLoop | TableRow) -> int:
+        if hasattr(loop, "resource_length"):
+            resource_length = loop.resource_length
+            return resource_length if isinstance(resource_length, int) else 1
+        return loop.length
 
     def copy(
         self,
@@ -423,7 +448,7 @@ class RenderContext:
         if carry_loop_iterations:
             loop_iteration_carry = reduce(
                 mul,
-                (loop.length for loop in self.loops),
+                (self._loop_resource_length(loop) for loop in self.loops),
                 self.loop_iteration_carry,
             )
         else:
@@ -484,6 +509,13 @@ class RenderContext:
             try:
                 return obj["size"]
             except (KeyError, IndexError, TypeError):
+                if is_lazy_sequence(obj):
+                    length = liquid_length(obj)
+                    if length is None:
+                        raise LiquidTypeError(
+                            "lazy sequence has no known size", token=None
+                        ) from None
+                    return length
                 if isinstance(obj, Sized):
                     return len(obj)
                 raise
@@ -504,6 +536,10 @@ class RenderContext:
             try:
                 return obj["last"]
             except (KeyError, IndexError, TypeError):
+                if is_lazy_sequence(obj) and liquid_length(obj) is None:
+                    raise LiquidTypeError(
+                        "lazy sequence has no known last item", token=None
+                    ) from None
                 if isinstance(obj, str) and not self.env.string_first_and_last:
                     raise TypeError("string object has no method 'last'") from None
                 if isinstance(obj, Sequence):
@@ -534,6 +570,13 @@ class RenderContext:
             try:
                 return await _get_item(obj, "size")
             except (KeyError, IndexError, TypeError):
+                if is_lazy_sequence(obj):
+                    length = liquid_length(obj)
+                    if length is None:
+                        raise LiquidTypeError(
+                            "lazy sequence has no known size", token=None
+                        ) from None
+                    return length
                 if isinstance(obj, Sized):
                     return len(obj)
                 raise
@@ -554,6 +597,10 @@ class RenderContext:
             try:
                 return await _get_item(obj, "last")
             except (KeyError, IndexError, TypeError):
+                if is_lazy_sequence(obj) and liquid_length(obj) is None:
+                    raise LiquidTypeError(
+                        "lazy sequence has no known last item", token=None
+                    ) from None
                 if isinstance(obj, str) and not self.env.string_first_and_last:
                     raise TypeError("string object has no method 'last'") from None
                 if isinstance(obj, Sequence):

@@ -18,10 +18,13 @@ from liquid.builtin.expressions import Nil
 from liquid.exceptions import FilterArgumentError
 from liquid.exceptions import FilterError
 from liquid.exceptions import FilterItemTypeError
+from liquid.exceptions import LiquidTypeError
 from liquid.filter import decimal_arg
 from liquid.filter import liquid_filter
 from liquid.filter import sequence_filter
 from liquid.filter import with_environment
+from liquid.sequence import is_lazy_sequence
+from liquid.sequence import liquid_length
 from liquid.undefined import is_undefined
 
 if TYPE_CHECKING:
@@ -97,6 +100,8 @@ def last(obj: Sequence[Any], *, environment: Environment) -> object:
     try:
         return getitem(obj, -1)
     except (TypeError, KeyError, IndexError):
+        if is_lazy_sequence(obj) and liquid_length(obj) is None:
+            raise LiquidTypeError("lazy sequence has no known last item", token=None)
         return None
 
 
@@ -126,6 +131,12 @@ def map_(sequence: ArrayT, key: object) -> list[object]:
 @sequence_filter
 def reverse(array: ArrayT) -> list[object]:
     """Reverses the order of the items in an array."""
+    if is_lazy_sequence(array):
+        if liquid_length(array) is None:
+            raise LiquidTypeError(
+                "can't reverse a lazy sequence with unknown length", token=None
+            )
+        array = list(array)
     return list(reversed(array))
 
 

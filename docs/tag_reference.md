@@ -280,6 +280,8 @@ If an `offset` argument is given, it should be an integer specifying how many it
 
 `offset` can also be given the special value `"continue"`, in which case the loop will start from where a previous loop with the same iterable left off.
 
+For one-shot `LazySequence` sources, the cursor tracks records actually consumed by that source during the current render. It is not shared with another render request.
+
 ```liquid2
 {% for product in collection.products limit: 2 %}
     - {{ product.title }}
@@ -293,6 +295,8 @@ If an `offset` argument is given, it should be an integer specifying how many it
 ### reversed
 
 If the reversed flag is given, the target iterable will be iterated in reverse order.
+
+A lazy sequence whose total length is unknown can not be reversed because that would require consuming the complete stream; Liquid raises a type error instead.
 
 ```liquid2
 {% for product in collection.products reversed %}
@@ -341,6 +345,8 @@ A `forloop` object is available inside every `for` tag block.
 | `first`      | `true` if the current iteration is the first, `false` otherwise.     | bool    |
 | `last`       | `true` is the current iteration is the last, `false` otherwise.      | bool    |
 | `parentloop` | the `forloop` object of an enclosing `for` loop.                     | forloop |
+
+`length`, `rindex` and `rindex0` require a known length. `first` and `last` work with an unknown-length lazy sequence; `last` uses at most one record of lookahead.
 
 ```liquid2
 {% for product in collection.products %}

@@ -17,6 +17,7 @@ from liquid.builtin.expressions import Identifier
 from liquid.builtin.expressions import LoopExpression
 from liquid.exceptions import BreakLoop
 from liquid.exceptions import ContinueLoop
+from liquid.exceptions import LiquidTypeError
 from liquid.parser import get_parser
 from liquid.tag import Tag
 from liquid.token import TOKEN_TAG
@@ -69,7 +70,7 @@ class ForNode(Node):
         """Render the node to the output buffer."""
         it, length = self.expression.evaluate(context)
 
-        if length:
+        if length != 0:
             character_count = 0
             name = self.expression.identifier
 
@@ -88,7 +89,9 @@ class ForNode(Node):
             # Extend the context. Essentially giving priority to `ForLoopDrop`, then
             # delegating `get` and `assign` to the outer context.
             with context.loop(namespace, forloop):
+                rendered = False
                 for itm in forloop:
+                    rendered = True
                     namespace[name] = itm
                     try:
                         character_count += self.block.render(context, buffer)
@@ -96,6 +99,9 @@ class ForNode(Node):
                         continue
                     except BreakLoop:
                         break
+
+                if not rendered and self.default:
+                    return self.default.render(context, buffer)
 
             return character_count
 
@@ -107,7 +113,7 @@ class ForNode(Node):
         """Render the node to the output buffer."""
         it, length = await self.expression.evaluate_async(context)
 
-        if length:
+        if length != 0:
             character_count = 0
             name = self.expression.identifier
 
@@ -126,7 +132,9 @@ class ForNode(Node):
             # Extend the context. Essentially giving priority to `ForLoopDrop`, then
             # delegating `get` and `assign` to the outer context.
             with context.loop(namespace, forloop):
+                rendered = False
                 for itm in forloop:
+                    rendered = True
                     namespace[name] = itm
                     try:
                         character_count += await self.block.render_async(
@@ -136,6 +144,9 @@ class ForNode(Node):
                         continue
                     except BreakLoop:
                         break
+
+                if not rendered and self.default:
+                    return await self.default.render_async(context, buffer)
 
             return character_count
 
@@ -246,7 +257,7 @@ class ForLoop(Mapping[str, object]):
     __slots__ = (
         "name",
         "it",
-        "length",
+        "_length",
         "item",
         "_index",
         "parentloop",
@@ -270,12 +281,12 @@ class ForLoop(Mapping[str, object]):
         self,
         name: str,
         it: Iterator[Any],
-        length: int,
+        length: int | None,
         parentloop: object,
     ):
         self.name = name
         self.it = it
-        self.length = length
+        self._length = length
 
         self.item = None
         self._index = -1  # Step is called before `next(it)`
@@ -292,6 +303,15 @@ class ForLoop(Mapping[str, object]):
     def __len__(self) -> int:
         return len(self._keys)
 
+    @property
+    def resource_length(self) -> int | None:
+        """The conservative iteration count used for resource limits."""
+        if self._length is not None:
+            return self._length
+
+        size = getattr(self.it, "size", None)
+        return size if isinstance(size, int) else None
+
     def __next__(self) -> object:
         self.step()
         return next(self.it)
@@ -301,6 +321,17 @@ class ForLoop(Mapping[str, object]):
 
     def __str__(self) -> str:
         return "ForLoop"
+
+    @property
+    def length(self) -> int:
+        """The number of iterations in this loop."""
+        if self._length is None:
+            raise LiquidTypeError(
+                "forloop.length is unavailable for a lazy sequence with "
+                "unknown length",
+                token=None,
+            )
+        return self._length
 
     @property
     def index(self) -> int:
@@ -330,6 +361,9 @@ class ForLoop(Mapping[str, object]):
     @property
     def last(self) -> bool:
         """True if this is the last iteration, false otherwise."""
+        if self._length is None:
+            iterator: Any = self.it
+            return iterator.is_last()
         return self._index == self.length - 1
 
     def step(self) -> None:

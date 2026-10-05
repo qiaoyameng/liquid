@@ -16,6 +16,7 @@ from liquid.builtin.expressions import Identifier
 from liquid.builtin.expressions import LoopExpression
 from liquid.exceptions import BreakLoop
 from liquid.exceptions import ContinueLoop
+from liquid.exceptions import LiquidTypeError
 from liquid.limits import to_int
 from liquid.parser import get_parser
 from liquid.tag import Tag
@@ -189,6 +190,13 @@ class TablerowNode(Node):
         name = self.expression.identifier
         loop_iter, length = self.expression.evaluate(context)
 
+        if length is None:
+            raise LiquidTypeError(
+                "tablerowloop length is unavailable for a lazy sequence with "
+                "unknown length",
+                token=self.token,
+            )
+
         if not length:
             # An empty iterable renders no rows.
             return True
@@ -241,6 +249,13 @@ class TablerowNode(Node):
         """Return this node's children."""
         name = self.expression.identifier
         loop_iter, length = await self.expression.evaluate_async(context)
+
+        if length is None:
+            raise LiquidTypeError(
+                "tablerowloop length is unavailable for a lazy sequence with "
+                "unknown length",
+                token=self.token,
+            )
 
         if self.expression.cols:
             cols = self._int_or_zero(await self.expression.cols.evaluate_async(context))

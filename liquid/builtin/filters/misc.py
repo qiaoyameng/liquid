@@ -14,8 +14,11 @@ from dateutil import parser
 from liquid import Markup
 from liquid.builtin.expressions import is_empty
 from liquid.exceptions import FilterArgumentError
+from liquid.exceptions import LiquidTypeError
 from liquid.filter import liquid_filter
 from liquid.filter import with_environment
+from liquid.sequence import is_lazy_sequence
+from liquid.sequence import liquid_length
 from liquid.undefined import is_undefined
 
 if TYPE_CHECKING:
@@ -28,6 +31,12 @@ def size(obj: Any) -> int:
 
     _obj_ could be a dict, list, string or any class implementing _len_.
     """
+    if is_lazy_sequence(obj):
+        length = liquid_length(obj)
+        if length is None:
+            raise LiquidTypeError("lazy sequence has no known size", token=None)
+        return length
+
     try:
         return len(obj)
     except TypeError:

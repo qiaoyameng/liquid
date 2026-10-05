@@ -1,5 +1,11 @@
 # Python Liquid Change Log
 
+# Unreleased
+
+**Features**
+
+- Added the `LazySequence` protocol for one-shot record streams. The `for` tag can consume such streams with `limit`, `offset`, `offset: continue`, `forloop.first`, `forloop.last`, and `break` without materializing the stream to calculate its length. Unknown-length metadata and reversal raise an error instead of inventing values.
+
 # Version 2.3.3
 
 **Fixes**

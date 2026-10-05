@@ -52,6 +52,7 @@ from .messages import Translations
 from .messages import extract_from_template
 
 from .stream import TokenStream
+from .sequence import LazySequence
 from .tag import Tag
 
 from . import future
@@ -82,6 +83,7 @@ __all__ = (
     "FutureBoundTemplate",
     "FutureContext",
     "is_undefined",
+    "LazySequence",
     "make_choice_loader",
     "make_file_system_loader",
     "Markup",
