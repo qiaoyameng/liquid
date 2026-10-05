@@ -1,5 +1,11 @@
 # Python Liquid Change Log
 
+## Unreleased
+
+**Features**
+
+- Added opt-in contextual HTML autoescaping with the new `contextual_autoescape` argument to `liquid.Environment`. When enabled, literal template output is tracked at parse time and output statements are escaped according to their HTML context: plain text, quoted attribute values or quoted URL attribute values. URL attributes (like `href` and `src`) are validated against an allowlist of URL protocols, with whitespace and HTML entity obfuscation taken into account. Output in unsupported positions (dynamic tag names, unquoted attribute values, `<script>`/`<style>` content, HTML comments, etc.) raises `liquid.exceptions.HTMLContextError`, as does HTML structure that is inconsistent across conditional branches, loops, `capture` blocks or partial templates. Safe string markers (like `markupsafe.Markup`) are only honored in HTML text context.
+
 # Version 2.3.3
 
 **Fixes**

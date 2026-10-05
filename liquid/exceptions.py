@@ -124,6 +124,17 @@ class LiquidSyntaxError(LiquidError):
     """Exception raised when there is a parser error."""
 
 
+class HTMLContextError(LiquidSyntaxError):
+    """Exception raised when a template can not be escaped safely for its HTML
+    context.
+
+    This is raised at parse time when contextual autoescaping is enabled and an
+    output statement appears in an unsupported HTML position, or when HTML
+    structure is inconsistent across branches. It is raised at render time when
+    a URL attribute value uses a disallowed protocol.
+    """
+
+
 class TemplateInheritanceError(LiquidError):
     """An exceptions raised when template inheritance tags are used incorrectly.
 

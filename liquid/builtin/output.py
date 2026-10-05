@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Iterable
+from typing import Optional
 from typing import TextIO
 
 from liquid.ast import Node
 from liquid.builtin.expressions import FilteredExpression
 from liquid.builtin.expressions import tokenize
+from liquid.html_context import HTMLContextKind
+from liquid.html_context import escape_for_context
 from liquid.stream import TokenStream
 from liquid.stringify import to_liquid_string
 from liquid.tag import Tag
@@ -24,20 +27,30 @@ if TYPE_CHECKING:
 class OutputNode(Node):
     """Parse tree node representing an output statement."""
 
-    __slots__ = ("expression",)
+    __slots__ = ("expression", "html_context")
 
     def __init__(self, token: Token, expression: Expression):
         super().__init__(token)
         self.expression = expression
+        self.html_context: Optional[HTMLContextKind] = None
         self.blank = False
 
     def __str__(self) -> str:
         return f"{{{{ {self.expression} }}}}"
 
+    def _stringify(self, value: object, autoescape: bool) -> str:
+        if self.html_context is None:
+            return to_liquid_string(value, autoescape)
+        if self.html_context is HTMLContextKind.TEXT:
+            return to_liquid_string(value, True)
+        return escape_for_context(
+            to_liquid_string(value, False), self.html_context, token=self.token
+        )
+
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
         return buffer.write(
-            to_liquid_string(self.expression.evaluate(context), context.autoescape)
+            self._stringify(self.expression.evaluate(context), context.autoescape)
         )
 
     async def render_to_output_async(
@@ -45,7 +58,7 @@ class OutputNode(Node):
     ) -> int:
         """Render the node to the output buffer."""
         return buffer.write(
-            to_liquid_string(
+            self._stringify(
                 await self.expression.evaluate_async(context), context.autoescape
             )
         )

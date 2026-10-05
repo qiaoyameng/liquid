@@ -72,6 +72,11 @@ class BoundTemplate:
     # `Context` when rendering templates.
     context_class: Type[RenderContext] = RenderContext
 
+    html_context_neutral: bool = False
+    """`True` if this template has been verified, by contextual autoescape
+    analysis, to start and end in HTML text context. Such templates are safe to
+    include from HTML text context when contextual autoescape is enabled."""
+
     def __init__(
         self,
         env: Environment,

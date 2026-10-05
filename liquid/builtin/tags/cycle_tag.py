@@ -12,6 +12,8 @@ from liquid.ast import Node
 from liquid.builtin.expressions import PositionalArgument
 from liquid.builtin.expressions import parse_primitive
 from liquid.exceptions import LiquidSyntaxError
+from liquid.html_context import HTMLContextKind
+from liquid.html_context import escape_for_context
 from liquid.stringify import to_liquid_string
 from liquid.tag import Tag
 from liquid.token import TOKEN_COLON
@@ -31,7 +33,7 @@ TAG_CYCLE = sys.intern("cycle")
 class CycleNode(Node):
     """The built-in _cycle_ tag."""
 
-    __slots__ = ("group", "args")
+    __slots__ = ("group", "args", "html_context")
 
     group_by_args: bool = False
     """If `True`, use cycle arguments as well as group name when building cycle
@@ -43,12 +45,22 @@ class CycleNode(Node):
         super().__init__(token)
         self.group = group
         self.args = args
+        self.html_context: Optional[HTMLContextKind] = None
         self.blank = False
 
     def __str__(self) -> str:
         name = f"{self.group.token.value}: " if self.group else ""
         items = ", ".join(str(i) for i in self.args)
         return f"{{% cycle {name}{items} %}}"
+
+    def _stringify(self, value: object, autoescape: bool) -> str:
+        if self.html_context is None:
+            return to_liquid_string(value, autoescape)
+        if self.html_context is HTMLContextKind.TEXT:
+            return to_liquid_string(value, True)
+        return escape_for_context(
+            to_liquid_string(value, False), self.html_context, token=self.token
+        )
 
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
@@ -70,9 +82,7 @@ class CycleNode(Node):
         if index >= len(args):
             return 0
 
-        return buffer.write(
-            to_liquid_string(args[index], autoescape=context.autoescape)
-        )
+        return buffer.write(self._stringify(args[index], context.autoescape))
 
     async def render_to_output_async(
         self, context: RenderContext, buffer: TextIO
@@ -96,9 +106,7 @@ class CycleNode(Node):
         if index >= len(args):
             return 0
 
-        return buffer.write(
-            to_liquid_string(args[index], autoescape=context.autoescape)
-        )
+        return buffer.write(self._stringify(args[index], context.autoescape))
 
     def expressions(self) -> Iterable[Expression]:
         """Return this node's expressions."""

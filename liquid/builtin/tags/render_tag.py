@@ -22,6 +22,7 @@ from liquid.builtin.expressions import parse_identifier
 from liquid.builtin.expressions import parse_primitive
 from liquid.builtin.tags.for_tag import ForLoop
 from liquid.builtin.tags.include_tag import TAG_INCLUDE
+from liquid.exceptions import HTMLContextError
 from liquid.exceptions import LiquidSyntaxError
 from liquid.exceptions import TemplateNotFoundError
 from liquid.tag import Tag
@@ -41,6 +42,17 @@ if TYPE_CHECKING:
 
 
 TAG_RENDER = sys.intern("render")
+
+
+def _check_html_context_neutral(
+    contextual: bool, template: BoundTemplate, token: Token
+) -> None:
+    if contextual and not template.html_context_neutral:
+        raise HTMLContextError(
+            "can not render a partial template that has not been verified for "
+            "contextual HTML escaping",
+            token=token,
+        )
 
 
 class RenderNode(Node):
@@ -100,6 +112,10 @@ class RenderNode(Node):
                 err.token = self.name.token
                 err.template_name = context.template.full_name()
                 raise
+
+        _check_html_context_neutral(
+            context.env.contextual_autoescape, template, self.token
+        )
 
         # Evaluate keyword arguments once. Unlike 'include', 'render' can not
         # mutate variables in the outer scope, so there's no need to re-evaluate
@@ -180,6 +196,10 @@ class RenderNode(Node):
                 err.token = self.name.token
                 err.template_name = context.template.full_name()
                 raise
+
+        _check_html_context_neutral(
+            context.env.contextual_autoescape, template, self.token
+        )
 
         # Evaluate keyword arguments once. Unlike 'include', 'render' can not
         # mutate variables in the outer scope, so there's no need to re-evaluate

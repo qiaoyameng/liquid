@@ -157,6 +157,22 @@ env = Environment()
 del env.tags["safe"]
 ```
 
+### Contextual auto escape
+
+When `contextual_autoescape=True`, output statements are escaped according to the HTML context they appear in, rather than applying a single HTML escape everywhere. Literal template output is tracked at parse time, so `{{ ... }}` (and `{% echo %}`/`{% cycle %}`) in plain text, inside quoted attribute values, and inside quoted URL attribute values (like `href` and `src`) each get appropriate treatment.
+
+```python
+from liquid import Environment
+
+env = Environment(contextual_autoescape=True)
+```
+
+- **Text** is HTML-escaped as usual. Strings marked as safe (like `markupsafe.Markup`) remain unescaped in this context only.
+- **Quoted attribute values** are attribute-escaped, so a value can not close the attribute or the surrounding tag. Safe string markers are not honored here.
+- **URL attribute values** (`href`, `src`, `action`, `formaction`, `poster`, `cite`, `background` and `data`) are additionally validated against an allowlist of URL protocols (`http`, `https`, `mailto`, `tel`, etc.). Disallowed protocols, including those obfuscated with whitespace or HTML entities, raise `liquid.exceptions.HTMLContextError` at render time.
+
+Output in any other position is rejected with `HTMLContextError` at parse time. This includes dynamic tag names, unquoted attribute values, dynamic attribute names, `<script>`/`<style>` content and HTML comments. Conditional branches, loops, `capture` blocks and included/rendered partial templates are checked for HTML context consistency, and partials can only be included from HTML text context. Tags other than the built-in control flow and output tags (template inheritance and macros, for example) are not yet supported and are rejected at parse time too.
+
 ## Resource limits
 
 For deployments where template authors are untrusted, you can set limits on some resources to avoid malicious templates from consuming too much memory or too many CPU cycles. Limits are set by subclassing [`Environment`](api/environment.md) and setting some class attributes.

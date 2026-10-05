@@ -24,6 +24,7 @@ from .exceptions import LiquidSyntaxError
 from .exceptions import TemplateInheritanceError
 from .exceptions import lookup_warning
 from .extra import add_tags_and_filters as register_extra_tags_and_filters
+from .html_analysis import analyze_html_context
 from .lex import get_lexer
 from .mode import Mode
 from .parser import get_parser
@@ -76,6 +77,12 @@ class Environment:
             undefined filter. Otherwise undefined filters are silently ignored.
         autoescape: If `True`, all render context values will be HTML-escaped before
             output unless they've been explicitly marked as "safe".
+        contextual_autoescape: If `True`, enable context-aware HTML autoescaping.
+            Literal template output is tracked so that output statements are
+            escaped according to their HTML context: plain text, quoted attribute
+            values or quoted URL attribute values. Output in any other position
+            is rejected, as is HTML structure that is inconsistent across
+            branches. Implies `autoescape`. Defaults to `False`.
         globals: An optional mapping that will be added to the render context of any
             template loaded from this environment.
     """
@@ -153,6 +160,7 @@ class Environment:
         undefined: Type[Undefined] = Undefined,
         strict_filters: bool = True,
         autoescape: bool = False,
+        contextual_autoescape: bool = False,
         globals: Optional[Mapping[str, object]] = None,  # noqa: A002
         template_comments: bool = False,
         comment_start_string: str = "{#",
@@ -182,7 +190,8 @@ class Environment:
 
         self.undefined: Type[Undefined] = undefined
         self.strict_filters: bool = strict_filters
-        self.autoescape: bool = autoescape
+        self.contextual_autoescape: bool = contextual_autoescape
+        self.autoescape: bool = autoescape or contextual_autoescape
         self.mode: Mode = tolerance
 
         self.tags: dict[str, Tag] = {}
@@ -285,7 +294,9 @@ class Environment:
             raise err
         except Exception as err:  # noqa: BLE001
             raise LiquidError("unexpected liquid parsing error", token=None) from err
-        return self.template_class(
+        if self.contextual_autoescape:
+            analyze_html_context(nodes)
+        template = self.template_class(
             env=self,
             name=name,
             path=path,
@@ -293,6 +304,8 @@ class Environment:
             globals=self.make_globals(globals),
             matter=matter,
         )
+        template.html_context_neutral = self.contextual_autoescape
+        return template
 
     def parse(
         self,

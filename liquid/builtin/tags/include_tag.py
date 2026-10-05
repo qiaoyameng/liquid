@@ -18,6 +18,7 @@ from liquid.builtin.expressions import Literal
 from liquid.builtin.expressions import Path
 from liquid.builtin.expressions import parse_identifier
 from liquid.builtin.expressions import parse_string_or_path
+from liquid.exceptions import HTMLContextError
 from liquid.exceptions import TemplateNotFoundError
 from liquid.tag import Tag
 from liquid.token import TOKEN_AS
@@ -78,6 +79,13 @@ class IncludeNode(Node):
             err.template_name = context.template.full_name()
             raise
 
+        if context.env.contextual_autoescape and not template.html_context_neutral:
+            raise HTMLContextError(
+                "can not include a partial template that has not been verified "
+                "for contextual HTML escaping",
+                token=self.token,
+            )
+
         namespace: dict[str, object] = {
             arg.name: arg.value.evaluate(context) for arg in self.args
         }
@@ -126,6 +134,13 @@ class IncludeNode(Node):
             err.token = self.name.token
             err.template_name = context.template.full_name()
             raise
+
+        if context.env.contextual_autoescape and not template.html_context_neutral:
+            raise HTMLContextError(
+                "can not include a partial template that has not been verified "
+                "for contextual HTML escaping",
+                token=self.token,
+            )
 
         namespace: dict[str, object] = {
             arg.name: await arg.value.evaluate_async(context) for arg in self.args
