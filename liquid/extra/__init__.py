@@ -18,6 +18,9 @@ from .filters import script_tag
 from .filters import sort_numeric
 from .filters import stylesheet_tag
 from .tags import BlockTag
+from .tags import ComponentTag
+from .tags import SlotTag
+from .tags import YieldTag
 from .tags import CallTag
 from .tags import ExtendsTag
 from .tags import MacroTag
@@ -34,6 +37,9 @@ __all__ = (
     "add_tags",
     "BaseTranslateFilter",
     "BlockTag",
+    "ComponentTag",
+    "SlotTag",
+    "YieldTag",
     "CallTag",
     "Currency",
     "DateTime",
@@ -64,6 +70,9 @@ def add_tags(env: Environment) -> None:
     env.add_tag(CallTag)
     env.add_tag(WithTag)
     env.add_tag(TranslateTag)
+    env.add_tag(ComponentTag)
+    env.add_tag(SlotTag)
+    env.add_tag(YieldTag)
 
 
 def add_filters(env: Environment) -> None:

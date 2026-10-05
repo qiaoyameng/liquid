@@ -98,6 +98,63 @@ In this example we use `{{ block.super }}` in the `footer` block to output the b
 </body>
 ```
 
+## component, slot and yield
+
+```
+{% component <name> [, <identifier>: <object>] ... %}
+  [{% slot [<name>] %} <liquid markup> {% endslot %}] ...
+{% endcomponent %}
+```
+
+```
+{% yield [<name>] [, <identifier>: <object>] ... %}
+```
+
+```
+{% yield [<name>] [, <identifier>: <object>] ... %}
+  <default markup>
+{% endyield %}
+```
+
+The `component` tag renders a partial template that decides when and where a
+caller's content blocks appear. The caller defines one or more named content
+blocks with `slot`, and the component renders them using `yield`. A bare
+`{% yield %}` renders the unnamed, default slot.
+
+Slots are evaluated in the caller's scope at definition time, even though the
+component decides when they are rendered. Keyword arguments passed to
+`component` are visible inside the component only, while arguments passed to
+`yield` are visible inside that slot only. Component and slot scope rules are
+otherwise the same as those for the [`render`](tag_reference.md#render) tag:
+assignments inside a component or slot do not leak to the caller, and each
+yield of a slot gets a fresh local namespace.
+
+If a `yield` has no matching caller slot, it renders its default content, or
+nothing for the inline form. Repeating a slot name in a component body is a
+syntax error.
+
+`component` and `slot` must be used together; a `slot` outside a component
+renders nothing. These tags do not change the behavior of the standard
+`include` and `render` tags.
+
+Given an `email` partial of:
+
+```liquid2
+<header>{% yield header %}</header>
+<main>{% yield body %}No body{% endyield %}</main>
+<footer>{% yield footer, year: 2026 %}</footer>
+```
+
+it can be rendered like this:
+
+```liquid2
+{% component "email", subject: "Hello" %}
+  {% slot header %}<h1>{{ subject }}</h1>{% endslot %}
+  {% slot body %}<p>Dear {{ customer.name }}, ...</p>{% endslot %}
+  {% slot footer %}&copy; {{ year }}{% endslot %}
+{% endcomponent %}
+```
+
 ## macro and call
 
 ```

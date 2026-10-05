@@ -1,5 +1,12 @@
 # Python Liquid Change Log
 
+# Unreleased
+
+**Features**
+
+- Added the extra, non-standard `component`, `slot` and `yield` tags. A component renders a partial template that controls when caller-provided `slot` blocks are emitted with `yield`. Slots keep the caller's scope at definition time, components accept a limited set of named arguments, assignments are isolated in both directions, each yield gets a fresh slot local namespace, default slot content and unnamed slots are supported, and recursive components honor the existing context depth limit. Enable with `Environment(extra=True)` or register `ComponentTag`, `SlotTag` and `YieldTag` explicitly.
+
+
 # Version 2.3.3
 
 **Fixes**

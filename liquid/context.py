@@ -107,6 +107,7 @@ class RenderContext:
             "stopindex": {},
             "extends": defaultdict(list),
             "macros": {},
+            "components": [],
         }
 
         # As stack of loop objects. Used for populating forloop.parentloop and
@@ -442,6 +443,7 @@ class RenderContext:
             # This might need to be generalized so the caller can specify which
             # tag namespaces need to be copied.
             ctx.tag_namespace["extends"] = self.tag_namespace["extends"]
+            ctx.tag_namespace["components"] = self.tag_namespace["components"]
         else:
             ctx = self.__class__(
                 template or self.template,
