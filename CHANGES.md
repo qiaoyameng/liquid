@@ -1,5 +1,11 @@
 # Python Liquid Change Log
 
+# Version 2.3.4
+
+**Additions**
+
+- Added the optional `{% message %}` tag (`liquid.extra.MessageTag`). It renders strings from an application supplied message catalog, keyed by message ID, locale and Babel plural category. Catalogs and fallback chains can be validated up front; fallback chains containing a cycle are rejected. Message text accepts named placeholders only and is never executed as a Liquid template. Placeholder values are HTML escaped when auto-escaping is enabled, and counts (including `decimal.Decimal` and decimal strings) are passed to Babel's plural rule without rounding.
+
 # Version 2.3.3
 
 **Fixes**

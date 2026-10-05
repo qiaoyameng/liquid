@@ -188,6 +188,84 @@ Keyword arguments are used to add (or shadow existing) variables.
 {% endtranslate %}
 ```
 
+## message
+
+```
+{% message "<message id>"
+    [, count: <number>]
+    [, locale: <string>]
+    [, <identifier>: <object> ] ... %}
+```
+
+The `message` tag renders a string looked up in an application supplied
+message catalog. Unlike [`translate`](#translate), it does not use a
+[gettext](https://docs.python.org/3.10/library/gettext.html) translations
+object. Instead, the catalog maps a locale tag and message ID to a string, or
+to a mapping of [Babel plural categories](https://babel.pocoo.org/en/latest/api/plural.html).
+
+Configure and register `liquid.extra.MessageTag`, supplying the catalog,
+fallback chain and default locale. Fallback chains containing a cycle are
+rejected when the tag is constructed.
+
+```python
+from liquid import Environment
+from liquid.extra import MessageTag
+
+catalog = {
+    "en": {
+        "greeting": "Hello, {name}!",
+        "apples": {
+            "one": "{count} apple",
+            "other": "{count} apples",
+        },
+    },
+    "ru": {
+        "apples": {
+            "one": "{count} яблоко",
+            "few": "{count} яблока",
+            "many": "{count} яблок",
+            "other": "{count} яблока",
+        },
+    },
+}
+
+
+class CatalogMessageTag(MessageTag):
+    catalog = catalog
+    default_locale = "en"
+    fallback_chain_map = {"ru": ["en"]}
+
+
+env = Environment(autoescape=True)
+env.add_tag(CatalogMessageTag)
+```
+
+The active locale resolves from a render context variable called `locale`, or
+the reserved `locale` keyword argument. Message text only accepts named
+placeholders in the form `{name}`; positional placeholders, format
+specifiers, attribute and index access are rejected when the catalog is
+checked. Every placeholder must be given a value and every keyword argument
+(other than `count` and `locale`) must be used by the message.
+
+```liquid2
+{% message 'greeting', name: user.name %}
+{% message 'apples', count: cart.item_count %}
+```
+
+`count` is passed to Babel's plural rule as given. Integers, floats and
+`decimal.Decimal` values are not rounded first, so `Decimal("1.0")` selects
+the plural category for a number with visible fractional digits, typically
+`other`. String counts are parsed as `Decimal` to preserve fractional
+digits.
+
+Message catalog text is never rendered as a Liquid template. When
+auto-escaping is enabled, placeholder values are HTML escaped while
+translated text is emitted verbatim. Use `{{` and `}}` for literal braces.
+
+A catalog may also be supplied per render using a context variable,
+`message_catalog` by default. Pass `validate=False` to defer catalog checks
+from tag construction to render time.
+
 ## with
 
 ```

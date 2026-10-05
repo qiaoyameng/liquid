@@ -17,10 +17,12 @@ from .filters import index
 from .filters import script_tag
 from .filters import sort_numeric
 from .filters import stylesheet_tag
+from .message_catalog import MessageCatalogError
 from .tags import BlockTag
 from .tags import CallTag
 from .tags import ExtendsTag
 from .tags import MacroTag
+from .tags import MessageTag
 from .tags import SnippetTag
 from .tags import TranslateTag
 from .tags import WithTag
@@ -42,6 +44,8 @@ __all__ = (
     "index",
     "JSON",
     "MacroTag",
+    "MessageCatalogError",
+    "MessageTag",
     "NGetText",
     "NPGetText",
     "Number",
@@ -64,6 +68,7 @@ def add_tags(env: Environment) -> None:
     env.add_tag(CallTag)
     env.add_tag(WithTag)
     env.add_tag(TranslateTag)
+    env.add_tag(MessageTag)
 
 
 def add_filters(env: Environment) -> None:
