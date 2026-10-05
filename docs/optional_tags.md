@@ -207,3 +207,50 @@ The `with` tag extends the template namespace with block scoped variables. These
   {{ a }} + {{ b }} = {{ a | plus: b }}
 {% endwith %}
 ```
+
+## message
+
+```
+{% message <message id> [, <identifier>: <expression> ... ] %}
+```
+
+The `message` tag renders a localized message from an application-supplied [`MessageCatalog`](api/extra.md#liquid.extra.MessageCatalog), looked up by message ID. The plural form is selected using [Babel's plural rules](https://babel.pocoo.org/en/latest/api/core.html) for the message locale and the special `count` argument. `count` is never rounded or truncated, so fractional counts can select a different plural form than their integer part.
+
+Unlike [`translate`](#translate), `message` is not registered by [`liquid.extra.add_tags()`](api/extra.md#liquid.extra.add_tags). Register it explicitly and configure a catalog, either as a class attribute or as a `message_catalog` render context variable.
+
+```python
+from liquid import Environment
+from liquid.extra import MessageCatalog
+from liquid.extra import MessageTag
+
+catalog = MessageCatalog(
+    {
+        "cart.items": {
+            "en": {
+                "one": "You have %(count)s item",
+                "other": "You have %(count)s items",
+            },
+            "ru": {
+                "one": "%(count)s товар",
+                "few": "%(count)s товара",
+                "many": "%(count)s товаров",
+                "other": "%(count)s товара",
+            },
+        },
+    },
+    default_locale="en",
+    fallbacks={"ru": ["en"]},
+)
+
+MessageTag.catalog = catalog
+env = Environment()
+env.add_tag(MessageTag)
+```
+
+```liquid2
+{% message 'cart.items', count: cart.size, locale: user.locale %}
+```
+
+The message ID is the first argument, a string literal or identifier. Remaining keyword arguments are placeholder values, plus the reserved arguments `count` and `locale`. The locale defaults to a `locale` render context variable, then the catalog's default locale. If a message is not defined for a locale, its configured fallback locales are tried in order. Fallback chains with cycles are rejected when the catalog is created.
+
+Message text is never parsed as a Liquid template. Only named placeholders of the form `%(name)s` are supported (`%%` is a literal percent sign), and placeholder values are escaped according to the environment's autoescape setting. Missing messages, missing plural forms, and missing or unexpected placeholder values raise a `MessageError` subclass at render time. `MessageCatalog.check()` validates the whole catalog up front, reporting unknown locales, unknown or missing plural categories, and inconsistent placeholders.

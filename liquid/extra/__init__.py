@@ -21,6 +21,12 @@ from .tags import BlockTag
 from .tags import CallTag
 from .tags import ExtendsTag
 from .tags import MacroTag
+from .tags import MessageCatalog
+from .tags import MessageCatalogError
+from .tags import MessageError
+from .tags import MessageInterpolationError
+from .tags import MessageLookupError
+from .tags import MessageTag
 from .tags import SnippetTag
 from .tags import TranslateTag
 from .tags import WithTag
@@ -42,6 +48,12 @@ __all__ = (
     "index",
     "JSON",
     "MacroTag",
+    "MessageCatalog",
+    "MessageCatalogError",
+    "MessageError",
+    "MessageInterpolationError",
+    "MessageLookupError",
+    "MessageTag",
     "NGetText",
     "NPGetText",
     "Number",

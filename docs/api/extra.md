@@ -3,6 +3,8 @@
 ::: liquid.extra.DateTime
 ::: liquid.extra.GetText
 ::: liquid.extra.JSON
+::: liquid.extra.MessageCatalog
+::: liquid.extra.MessageTag
 ::: liquid.extra.NGetText
 ::: liquid.extra.NPGetText
 ::: liquid.extra.Number
