@@ -15,8 +15,10 @@ from liquid.ast import BlockNode
 from liquid.ast import Node
 from liquid.builtin.expressions import Identifier
 from liquid.builtin.expressions import LoopExpression
+from liquid.builtin.expressions.loop import LazyLoopIterator
 from liquid.exceptions import BreakLoop
 from liquid.exceptions import ContinueLoop
+from liquid.exceptions import LiquidTypeError
 from liquid.parser import get_parser
 from liquid.tag import Tag
 from liquid.token import TOKEN_TAG
@@ -68,27 +70,75 @@ class ForNode(Node):
     def render_to_output(self, context: RenderContext, buffer: TextIO) -> int:
         """Render the node to the output buffer."""
         it, length = self.expression.evaluate(context)
+        return self._render_loop(context, buffer, it, length)
 
-        if length:
-            character_count = 0
-            name = self.expression.identifier
+    async def render_to_output_async(
+        self, context: RenderContext, buffer: TextIO
+    ) -> int:
+        """Render the node to the output buffer."""
+        it, length = await self.expression.evaluate_async(context)
+        return await self._render_loop_async(
+            context, buffer, it, length
+        )
 
-            forloop = ForLoop(
-                name=f"{name}-{self.expression.iterable}",
-                it=it,
-                length=length,
-                parentloop=context.parentloop(),
-            )
+    def _make_loop(
+        self,
+        context: RenderContext,
+        it: Iterator[object],
+        length: Optional[int],
+    ) -> tuple[dict[str, object], ForLoop, Optional[LazyLoopIterator]]:
+        name = self.expression.identifier
+        window: Optional[LazyLoopIterator] = (
+            it if isinstance(it, LazyLoopIterator) else None
+        )
 
-            namespace = {
-                "forloop": forloop,
-                name: None,
-            }
+        forloop = ForLoop(
+            name=f"{name}-{self.expression.iterable}",
+            it=it,
+            length=None if window is not None else length,
+            window=window,
+            parentloop=context.parentloop(),
+        )
+        return {"forloop": forloop, name: None}, forloop, window
 
-            # Extend the context. Essentially giving priority to `ForLoopDrop`, then
-            # delegating `get` and `assign` to the outer context.
-            with context.loop(namespace, forloop):
+    def _loop_is_empty(
+        self,
+        length: Optional[int],
+        window: Optional[LazyLoopIterator],
+    ) -> bool:
+        if window is not None:
+            return not window.rendered
+        return not length
+
+    def _render_default(self, context: RenderContext, buffer: TextIO) -> int:
+        return self.default.render(context, buffer) if self.default else 0
+
+    async def _render_default_async(
+        self, context: RenderContext, buffer: TextIO
+    ) -> int:
+        return (
+            await self.default.render_async(context, buffer)
+            if self.default
+            else 0
+        )
+
+    def _render_loop(
+        self,
+        context: RenderContext,
+        buffer: TextIO,
+        it: Iterator[object],
+        length: Optional[int],
+    ) -> int:
+        """Render the loop body, shared by the sync and async paths."""
+        namespace, forloop, window = self._make_loop(context, it, length)
+        name = self.expression.identifier
+
+        character_count = 0
+        with context.loop(namespace, forloop):
+            try:
                 for itm in forloop:
+                    if window is not None:
+                        context.note_loop_iteration(forloop)
                     namespace[name] = itm
                     try:
                         character_count += self.block.render(context, buffer)
@@ -96,37 +146,35 @@ class ForNode(Node):
                         continue
                     except BreakLoop:
                         break
+            finally:
+                if window is not None:
+                    # `offset: continue` progress is render-local, keyed by
+                    # loop variable name and iterable expression.
+                    context.stopindex(
+                        self.expression.stopindex_key, index=window.consumed
+                    )
 
-            return character_count
+        if self._loop_is_empty(length, window):
+            return self._render_default(context, buffer)
 
-        return self.default.render(context, buffer) if self.default else 0
+        return character_count
 
-    async def render_to_output_async(
-        self, context: RenderContext, buffer: TextIO
+    async def _render_loop_async(
+        self,
+        context: RenderContext,
+        buffer: TextIO,
+        it: Iterator[object],
+        length: Optional[int],
     ) -> int:
-        """Render the node to the output buffer."""
-        it, length = await self.expression.evaluate_async(context)
+        namespace, forloop, window = self._make_loop(context, it, length)
+        name = self.expression.identifier
 
-        if length:
-            character_count = 0
-            name = self.expression.identifier
-
-            forloop = ForLoop(
-                name=f"{name}-{self.expression.iterable}",
-                it=it,
-                length=length,
-                parentloop=context.parentloop(),
-            )
-
-            namespace = {
-                "forloop": forloop,
-                name: None,
-            }
-
-            # Extend the context. Essentially giving priority to `ForLoopDrop`, then
-            # delegating `get` and `assign` to the outer context.
-            with context.loop(namespace, forloop):
+        character_count = 0
+        with context.loop(namespace, forloop):
+            try:
                 for itm in forloop:
+                    if window is not None:
+                        context.note_loop_iteration(forloop)
                     namespace[name] = itm
                     try:
                         character_count += await self.block.render_async(
@@ -136,10 +184,16 @@ class ForNode(Node):
                         continue
                     except BreakLoop:
                         break
+            finally:
+                if window is not None:
+                    context.stopindex(
+                        self.expression.stopindex_key, index=window.consumed
+                    )
 
-            return character_count
+        if self._loop_is_empty(length, window):
+            return await self._render_default_async(context, buffer)
 
-        return await self.default.render_async(context, buffer) if self.default else 0
+        return character_count
 
     def children(
         self,
@@ -246,7 +300,8 @@ class ForLoop(Mapping[str, object]):
     __slots__ = (
         "name",
         "it",
-        "length",
+        "_length",
+        "_window",
         "item",
         "_index",
         "parentloop",
@@ -270,19 +325,21 @@ class ForLoop(Mapping[str, object]):
         self,
         name: str,
         it: Iterator[Any],
-        length: int,
+        length: Optional[int],
         parentloop: object,
+        window: Optional[LazyLoopIterator] = None,
     ):
         self.name = name
         self.it = it
-        self.length = length
+        self._length = length
+        self._window = window
 
         self.item = None
         self._index = -1  # Step is called before `next(it)`
         self.parentloop = parentloop
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"ForLoop(name='{self.name}', length={self.length})"
+        return f"ForLoop(name='{self.name}', length={self._length})"
 
     def __getitem__(self, key: str) -> object:
         if key in self._keys:
@@ -302,6 +359,20 @@ class ForLoop(Mapping[str, object]):
     def __str__(self) -> str:
         return "ForLoop"
 
+    def _require_length(self) -> int:
+        if self._length is None:
+            raise LiquidTypeError(
+                "forloop length is not available for a lazy iterable with an "
+                "unknown length",
+                token=None,
+            )
+        return self._length
+
+    @property
+    def length(self) -> int:
+        """The number of iterations, or an error for unknown-length streams."""
+        return self._require_length()
+
     @property
     def index(self) -> int:
         """The 1-based index of the current loop iteration."""
@@ -315,12 +386,12 @@ class ForLoop(Mapping[str, object]):
     @property
     def rindex(self) -> int:
         """The 1-based index, counting from the right, of the current loop iteration."""
-        return self.length - self._index
+        return self._require_length() - self._index
 
     @property
     def rindex0(self) -> int:
         """The 0-based index, counting from the right, of the current loop iteration."""
-        return self.length - self._index - 1
+        return self._require_length() - self._index - 1
 
     @property
     def first(self) -> bool:
@@ -330,8 +401,18 @@ class ForLoop(Mapping[str, object]):
     @property
     def last(self) -> bool:
         """True if this is the last iteration, false otherwise."""
-        return self._index == self.length - 1
+        if self._window is not None:
+            return self._window.is_last()
+        return self._index == self._length - 1
 
     def step(self) -> None:
         """Move the for loop helper forward to the next iteration."""
         self._index += 1
+
+    @property
+    def iteration_factor(self) -> int:
+        """Contribution of this loop to the nested iteration limit check."""
+        if self._length is None:
+            # Bounded one iteration at a time by `note_loop_iteration`.
+            return 1
+        return self._length

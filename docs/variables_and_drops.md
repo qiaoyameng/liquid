@@ -71,6 +71,61 @@ print(render(source, **data))
         - ('z', 6)
 ```
 
+## Lazy iterables
+
+Some data sources, like a paginated API or database cursor, expose records
+as a stream that can only be iterated once and has no known length. Pass an
+implementation of [`LazyIterable`](api/builtin.md#drops) to a
+template and `{% for %}` will consume it directly without materializing all
+records first.
+
+```python
+from liquid import Environment
+from liquid import LazyIterable
+
+
+class RecordStream(LazyIterable):
+    def __init__(self, records):
+        self.records = records
+
+    def __iter__(self):
+        # Pull records from the backend on demand.
+        yield from self.records
+
+
+env = Environment()
+template = env.from_string(
+    "{% for record in records %}"
+    "{{ forloop.index }}: {{ record }}"
+    "{% unless forloop.last %}, {% endunless %}"
+    "{% endfor %}"
+)
+print(template.render(records=RecordStream(["a", "b", "c"])))
+```
+
+```plain title="output"
+1: a, 2: b, 3: c
+```
+
+`limit` and `offset` are applied lazily, `break` and `continue` work
+normally, and `forloop.first` and `forloop.last` are supported with a
+bounded, one-record lookahead. For a loop with `offset:O` and `limit:L`, at
+most `O + L + 1` records are pulled from the source, so rendering can not
+accidentally drain an unknown-length stream.
+
+Because the length is unknown, `forloop.length`, `forloop.rindex` and
+`forloop.rindex0` raise a `LiquidTypeError` instead of guessing. Unbounded
+`reversed` is also refused; combine `reversed` with an integer `limit` (only
+that window is buffered) or override [`LazyIterable.reversed()`](api/builtin.md#liquid.builtin.drops.LazyIterable.reversed).
+A source that knows its length up front can return it from
+[`LazyIterable.length_hint()`](api/builtin.md#liquid.builtin.drops.LazyIterable.length_hint),
+which enables `length`, `rindex` and full `reversed`.
+
+`offset: continue` tracks progress in the render context, keyed by the loop
+variable name and iterable expression. Each call to `render` gets a fresh
+context, so a second, independent render never inherits a previous loop's
+cursor.
+
 ## Paths to variables
 
 When referenced in a template, a variable is best viewed as a _path_ to a value, where each path has one or more _segments_. Segments can be property names separated by dots (`foo.bar`), array indexes using bracket notation (`store.products[1]`) or bracketed property names for situations where the property name is held in a variable or contains reserved characters (`product.variant[var]` or `products["something with spaces"]`)

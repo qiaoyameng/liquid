@@ -374,13 +374,33 @@ class RenderContext:
         self, namespace: Mapping[str, object], forloop: ForLoop | TableRow
     ) -> Iterator[RenderContext]:
         """Just like `Context.extend`, but keeps track of ForLoop objects too."""
-        self.raise_for_loop_limit(forloop.length)
+        # The new loop is not on the stack yet; its factor is passed in.
+        self.raise_for_loop_limit(forloop.iteration_factor)
         self.loops.append(forloop)
         with self.extend(namespace) as context:
             try:
                 yield context
             finally:
                 self.loops.pop()
+
+    def note_loop_iteration(self, forloop: ForLoop | TableRow) -> None:
+        """Account for one iteration of a loop against the iteration limit.
+
+        Lazy iterables with an unknown length can not be checked up front, so
+        loops over them call this for every iteration instead.
+        """
+        if self.env.loop_iteration_limit is None:
+            return
+
+        factor = reduce(
+            mul,
+            (loop.iteration_factor for loop in self.loops[:-1]),
+            self.loop_iteration_carry,
+        )
+        if forloop.index * factor > self.env.loop_iteration_limit:
+            raise LoopIterationLimitError(
+                "loop iteration limit reached", token=None
+            )
 
     def parentloop(self) -> Union[Undefined, object]:
         """Return the last ForLoop object from the loop stack."""
@@ -390,14 +410,14 @@ class RenderContext:
 
         return self.env.undefined("parentloop", token=None)
 
-    def raise_for_loop_limit(self, length: int = 1) -> None:
+    def raise_for_loop_limit(self, factor: int = 1) -> None:
         """Raise a `LoopIterationLimitError` if loop stack is bigger than the limit."""
         if (
             self.env.loop_iteration_limit
             and reduce(
                 mul,
-                (loop.length for loop in self.loops),
-                length * self.loop_iteration_carry,
+                (loop.iteration_factor for loop in self.loops),
+                factor * self.loop_iteration_carry,
             )
             > self.env.loop_iteration_limit
         ):
@@ -423,7 +443,7 @@ class RenderContext:
         if carry_loop_iterations:
             loop_iteration_carry = reduce(
                 mul,
-                (loop.length for loop in self.loops),
+                (loop.iteration_factor for loop in self.loops),
                 self.loop_iteration_carry,
             )
         else:

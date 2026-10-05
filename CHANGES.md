@@ -1,5 +1,11 @@
 # Python Liquid Change Log
 
+# Unreleased
+
+**Features**
+
+- Added the `liquid.LazyIterable` drop protocol for backend record streams that can only be iterated once and have no known length. The `for` tag can now consume such a stream directly, honoring `limit`, `offset`, `forloop.first`/`forloop.last`, `break` and `continue`, with a bounded, one-record lookahead for `last`. `forloop.length`, `forloop.rindex`, `forloop.rindex0` and unbounded `reversed` raise a `LiquidTypeError` for unknown-length sources instead of draining the stream or fabricating a number. `offset: continue` progress remains render-local, keyed by loop variable name and iterable expression, and does not leak between renders or requests.
+
 # Version 2.3.3
 
 **Fixes**

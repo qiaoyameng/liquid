@@ -40,6 +40,8 @@ from .builtin import PackageLoader
 from .builtin import CachingLoaderMixin
 from .loader import BaseLoader
 
+from .builtin.drops import LazyIterable
+
 from .ast import Node
 from .ast import BlockNode
 from .ast import ConditionalBlockNode
@@ -82,6 +84,7 @@ __all__ = (
     "FutureBoundTemplate",
     "FutureContext",
     "is_undefined",
+    "LazyIterable",
     "make_choice_loader",
     "make_file_system_loader",
     "Markup",
