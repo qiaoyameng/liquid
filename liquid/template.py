@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Awaitable
+from typing import Iterable
 from typing import Iterator
 from typing import Mapping
 from typing import Optional
@@ -258,18 +259,34 @@ class BoundTemplate:
         """
         return {**render_args, "partial": partial}
 
-    def analyze(self, *, include_partials: bool = True) -> TemplateAnalysis:
+    def analyze(
+        self,
+        *,
+        include_partials: bool = True,
+        globals: Optional[Iterable[str]] = None,  # noqa: A002
+    ) -> TemplateAnalysis:
         """Statically analyze this template and any included/rendered templates.
 
         Args:
             include_partials: If `True`, we will try to load partial templates and
                 analyze those templates too.
+            globals: Root variable names declared by the caller. References to
+                these names are not reported as possibly unassigned.
         """
-        return analyze(self, include_partials=include_partials)
+        return analyze(
+            self, include_partials=include_partials, globals_=globals
+        )
 
-    async def analyze_async(self, *, include_partials: bool = True) -> TemplateAnalysis:
+    async def analyze_async(
+        self,
+        *,
+        include_partials: bool = True,
+        globals: Optional[Iterable[str]] = None,  # noqa: A002
+    ) -> TemplateAnalysis:
         """An async version of `analyze`."""
-        return await analyze_async(self, include_partials=include_partials)
+        return await analyze_async(
+            self, include_partials=include_partials, globals_=globals
+        )
 
     def variables(self, *, include_partials: bool = True) -> list[str]:
         """Return a list of variables used in this template without path segments.

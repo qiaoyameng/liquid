@@ -19,6 +19,9 @@ from .builtin.expressions import Path
 from .builtin.expressions import TernaryFilteredExpression
 from .builtin.tags.case_tag import MultiExpressionBlockNode
 from .context import RenderContext
+from .definite_analysis import Branch
+from .definite_analysis import UnassignedVariable
+from .definite_analysis import _DefiniteAnalyzer
 from .span import Span
 from .token import TOKEN_TAG
 
@@ -118,6 +121,10 @@ class TemplateAnalysis:
             be included by the application developer rather than a template author.
         filters: All filters found during static analysis.
         tags: All tags found during static analysis.
+        unassigned: References to local variables that can be reached on a
+            path where the variable might not have been assigned. Each report
+            includes the location of the read and the control flow branches
+            responsible for the missing assignment.
     """
 
     variables: dict[str, list[Variable]]
@@ -125,15 +132,21 @@ class TemplateAnalysis:
     locals: dict[str, list[Variable]]
     filters: dict[str, list[Span]]
     tags: dict[str, list[Span]]
+    unassigned: dict[str, list[UnassignedVariable]]
 
 
-def analyze(template: BoundTemplate, *, include_partials: bool) -> TemplateAnalysis:
+def analyze(
+    template: BoundTemplate,
+    *,
+    include_partials: bool,
+    globals_: Optional[Iterable[str]] = None,
+) -> TemplateAnalysis:
     """Report variable, filters and tags used in the given template.
 
     This is used by `BoundTemplate.analyze`.
     """
     variables = _VariableMap()
-    globals = _VariableMap()  # noqa: A001
+    globals_map = _VariableMap()
     locals = _VariableMap()  # noqa: A001
 
     filters: defaultdict[str, list[Span]] = defaultdict(list)
@@ -142,6 +155,15 @@ def analyze(template: BoundTemplate, *, include_partials: bool) -> TemplateAnaly
     template_scope: set[str] = set()
     root_scope = _StaticScope(template_scope)
     static_context = RenderContext(template)
+
+    # Flow sensitive definite assignment analysis runs independently of the
+    # scope insensitive variable collection above.
+    definite = _DefiniteAnalyzer(
+        template,
+        static_context,
+        globals=set(globals_ or ()),
+        include_partials=include_partials,
+    )
 
     # Names of partial templates that have already been analyzed.
     # Keys are hashes of partial template name and its arguments. If we've
@@ -176,7 +198,7 @@ def analyze(template: BoundTemplate, *, include_partials: bool) -> TemplateAnaly
                 expr,
                 template_name,
                 scope,
-                globals,
+                globals_map,
                 _VariableMap() if just_globals else variables,
             )
 
@@ -241,24 +263,30 @@ def analyze(template: BoundTemplate, *, include_partials: bool) -> TemplateAnaly
     for node in template.nodes:
         _visit(node, template.name, root_scope)
 
+    unassigned = definite.analyze()
+
     return TemplateAnalysis(
         variables=variables.as_dict(),
-        globals=globals.as_dict(),
+        globals=globals_map.as_dict(),
         locals=locals.as_dict(),
         filters=dict(filters),
         tags=dict(tags),
+        unassigned=unassigned,
     )
 
 
 async def analyze_async(
-    template: BoundTemplate, *, include_partials: bool
+    template: BoundTemplate,
+    *,
+    include_partials: bool,
+    globals_: Optional[Iterable[str]] = None,
 ) -> TemplateAnalysis:
     """Report variable, filters and tags used in the given template.
 
     This is used by `BoundTemplate.analyze_async`.
     """
     variables = _VariableMap()
-    globals = _VariableMap()  # noqa: A001
+    globals_map = _VariableMap()
     locals = _VariableMap()  # noqa: A001
 
     filters: defaultdict[str, list[Span]] = defaultdict(list)
@@ -267,6 +295,13 @@ async def analyze_async(
     template_scope: set[str] = set()
     root_scope = _StaticScope(template_scope)
     static_context = RenderContext(template)
+
+    definite = _DefiniteAnalyzer(
+        template,
+        static_context,
+        globals=set(globals_ or ()),
+        include_partials=include_partials,
+    )
 
     # Names of partial templates that have already been analyzed.
     seen: defaultdict[str, set[Optional[int]]] = defaultdict(set)
@@ -297,7 +332,7 @@ async def analyze_async(
                 expr,
                 template_name,
                 scope,
-                globals,
+                globals_map,
                 _VariableMap() if just_globals else variables,
             )
 
@@ -362,12 +397,15 @@ async def analyze_async(
     for node in template.nodes:
         await _visit(node, template.name, root_scope)
 
+    unassigned = definite.analyze()
+
     return TemplateAnalysis(
         variables=variables.as_dict(),
-        globals=globals.as_dict(),
+        globals=globals_map.as_dict(),
         locals=locals.as_dict(),
         filters=dict(filters),
         tags=dict(tags),
+        unassigned=unassigned,
     )
 
 
